@@ -22,6 +22,7 @@ export default tseslint.config(
       "target/",
       "static/",
       "node_modules/",
+      "e2e/",
       "*.config.js",
       "*.config.ts",
     ],

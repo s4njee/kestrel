@@ -120,6 +120,7 @@
           <button
             type="button"
             class="row"
+            data-row-kind={entry.kind}
             draggable="true"
             aria-pressed={selected.has(entry.name)}
             class:selected={selected.has(entry.name)}
