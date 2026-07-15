@@ -247,6 +247,15 @@ pub(crate) struct ClientHandler {
 impl russh::client::Handler for ClientHandler {
     type Error = russh::Error;
 
+    /// russh TOFU hook: decide whether to trust the server's host key.
+    ///
+    /// Known keys are accepted silently; unknown or changed keys raise a
+    /// host-key prompt and block on the user's decision (changed keys are the
+    /// MITM case and require explicit confirmation).
+    ///
+    /// Arguments: `server_public_key` — the key the server presented.
+    /// Returns: `Ok(true)` to accept the key, `Ok(false)` to reject and abort
+    /// the handshake; `Err` only on an internal failure.
     async fn check_server_key(
         &mut self,
         server_public_key: &PublicKey,

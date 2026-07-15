@@ -71,6 +71,12 @@
   let visible = $derived(entries.slice(startIndex, startIndex + visibleCount));
   let offsetY = $derived(startIndex * ROW);
 
+  /**
+   * Format a Unix mode as a 9-character rwx string.
+   *
+   * @param mode - the permission bits, or null when unknown.
+   * @returns the rwx string, or "—" when `mode` is null.
+   */
   function permString(mode: number | null): string {
     if (mode == null) return "—";
     const bits = ["r", "w", "x"];
@@ -83,20 +89,43 @@
     return out;
   }
 
+  /**
+   * Pick a display icon for an entry by kind.
+   *
+   * @param entry - the directory entry.
+   * @returns an emoji for a dir, symlink, or file.
+   */
   function icon(entry: DirEntry): string {
     if (entry.kind === "dir") return "📁";
     if (entry.kind === "symlink") return "🔗";
     return "📄";
   }
 
+  /**
+   * Translate a row click into a selection with its modifier keys.
+   *
+   * @param entry - the clicked entry.
+   * @param event - the mouse event (ctrl/cmd and shift are read).
+   */
   function onRowClick(entry: DirEntry, event: MouseEvent): void {
     onSelect(entry.name, { ctrl: event.metaKey || event.ctrlKey, shift: event.shiftKey });
   }
 
+  /**
+   * Track the viewport scroll offset that drives virtualization.
+   *
+   * @param event - the scroll event from the viewport element.
+   */
   function onScroll(event: Event): void {
     scrollTop = (event.currentTarget as HTMLDivElement).scrollTop;
   }
 
+  /**
+   * The sort-direction arrow to show on a column header.
+   *
+   * @param key - the column being rendered.
+   * @returns " ▲"/" ▼" for the active sort column, else "".
+   */
   function sortArrow(key: SortKey): string {
     if (sortKey !== key) return "";
     return sortAsc ? " ▲" : " ▼";

@@ -30,6 +30,10 @@ impl Secret {
 }
 
 impl std::fmt::Debug for Secret {
+    /// Redacting `Debug`: never prints the wrapped secret value.
+    ///
+    /// Arguments: `f` — the formatter.
+    /// Returns: a `fmt::Result`; always writes the literal `Secret(REDACTED)`.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Secret(REDACTED)")
     }

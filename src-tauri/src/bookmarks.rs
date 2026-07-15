@@ -199,6 +199,7 @@ mod tests {
         }
     }
 
+    /// Upserting a nil-id bookmark assigns an id and persists to disk.
     #[test]
     fn upsert_assigns_id_and_persists() {
         let dir = tempfile::tempdir().unwrap();
@@ -214,6 +215,7 @@ mod tests {
         assert_eq!(list[0].name, "prod");
     }
 
+    /// The persisted file records the schema version.
     #[test]
     fn file_records_schema_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -224,6 +226,7 @@ mod tests {
         assert!(text.contains("\"version\": 1"));
     }
 
+    /// Upserting an existing id replaces that bookmark in place.
     #[test]
     fn upsert_replaces_existing_by_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -236,6 +239,7 @@ mod tests {
         assert_eq!(list[0].name, "prod-renamed");
     }
 
+    /// `remove` deletes the bookmark, returns it, and persists the empty state.
     #[test]
     fn remove_deletes_and_returns_bookmark() {
         let dir = tempfile::tempdir().unwrap();
@@ -250,6 +254,7 @@ mod tests {
         assert!(BookmarkStore::load(path).list().is_empty());
     }
 
+    /// A malformed file loads empty and is left untouched until a real change.
     #[test]
     fn malformed_file_starts_empty_without_clobbering() {
         let dir = tempfile::tempdir().unwrap();

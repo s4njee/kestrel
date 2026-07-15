@@ -562,6 +562,7 @@ mod tests {
     use super::Concurrency;
     use std::time::Duration;
 
+    /// The semaphore caps concurrent permits and honors live limit changes.
     #[tokio::test]
     async fn concurrency_limits_and_adjusts_live() {
         let c = Concurrency::new(2);

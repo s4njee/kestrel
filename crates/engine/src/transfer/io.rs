@@ -137,10 +137,15 @@ mod tests {
     use crate::fs::local::LocalFs;
     use std::sync::atomic::AtomicU64;
 
+    /// Build an absolute path string for `name` inside a temp dir.
+    ///
+    /// Arguments: `dir` — the temp directory; `name` — the file name.
+    /// Returns: the joined path as an owned string.
     fn path(dir: &tempfile::TempDir, name: &str) -> String {
         dir.path().join(name).to_string_lossy().into_owned()
     }
 
+    /// Download writes via `.part` then atomically renames; progress is exact.
     #[tokio::test]
     async fn download_copies_content_and_renames() {
         let dir = tempfile::tempdir().unwrap();
@@ -170,6 +175,7 @@ mod tests {
         assert!(tokio::fs::metadata(format!("{dst}.part")).await.is_err());
     }
 
+    /// Cancelling a download leaves the `.part` (for resume) and no final file.
     #[tokio::test]
     async fn cancel_leaves_part_and_no_final_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -200,6 +206,7 @@ mod tests {
         assert!(tokio::fs::metadata(format!("{dst}.part")).await.is_ok());
     }
 
+    /// Upload writes straight to the destination (no `.part`).
     #[tokio::test]
     async fn upload_writes_directly() {
         let dir = tempfile::tempdir().unwrap();
@@ -219,6 +226,7 @@ mod tests {
         assert!(tokio::fs::metadata(format!("{dst}.part")).await.is_err());
     }
 
+    /// A resumed download continues from the existing `.part` offset.
     #[tokio::test]
     async fn resume_continues_from_offset() {
         let dir = tempfile::tempdir().unwrap();

@@ -28,6 +28,11 @@
 
   let segments = $derived(pathSegments(path));
 
+  /**
+   * Handle path-field keys: Enter navigates to the typed path, Escape reverts.
+   *
+   * @param event - the keydown event.
+   */
   function onKeyDown(event: KeyboardEvent): void {
     if (event.key === "Enter" && draft.trim()) onNavigate(draft.trim());
     else if (event.key === "Escape") draft = path;

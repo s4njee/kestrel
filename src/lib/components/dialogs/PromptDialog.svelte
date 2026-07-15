@@ -35,6 +35,11 @@
   // during its lifetime, so capturing the initial value is intentional.
   let values = $state<string[]>(untrack(() => fields.map(() => "")));
 
+  /**
+   * Submit the entered field values.
+   *
+   * @param event - the form submit event.
+   */
   function submit(event: Event): void {
     event.preventDefault();
     onSubmit([...values]);

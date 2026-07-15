@@ -39,7 +39,12 @@ class TransfersStore {
     return this.#list;
   }
 
-  /** Whether a state is active (not finished). */
+  /**
+   * Whether a state is active (not finished).
+   *
+   * @param state - a transfer lifecycle state.
+   * @returns true for queued/running/paused, false for terminal states.
+   */
   static isActive(state: TransferStateStr): boolean {
     return state === "queued" || state === "running" || state === "paused";
   }

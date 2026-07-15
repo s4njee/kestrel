@@ -2,7 +2,12 @@
 // separators, since local paths arrive in the OS's own syntax and remote
 // (SFTP) paths are always POSIX.
 
-/** Detect the separator used by a path (defaults to "/"). */
+/**
+ * Detect the separator used by a path (defaults to "/").
+ *
+ * @param path - the path to inspect.
+ * @returns "\\" for a Windows-style path with no forward slashes, else "/".
+ */
 function sep(path: string): string {
   return path.includes("\\") && !path.includes("/") ? "\\" : "/";
 }

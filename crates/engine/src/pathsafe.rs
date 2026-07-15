@@ -84,6 +84,7 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf> {
 mod tests {
     use super::*;
 
+    /// Ordinary names (including reserved-name lookalikes) are accepted.
     #[test]
     fn accepts_ordinary_names() {
         for name in ["file.txt", "My Document", "naïve", "a.tar.gz", "CONsole", "COM10"] {
@@ -91,6 +92,7 @@ mod tests {
         }
     }
 
+    /// Traversal (`..`), current-dir, empty, and separators are rejected.
     #[test]
     fn rejects_traversal_and_separators() {
         for name in ["..", ".", "", "a/b", "a\\b", "/etc", "../../etc/passwd"] {
@@ -98,6 +100,7 @@ mod tests {
         }
     }
 
+    /// NUL and other control characters are rejected.
     #[test]
     fn rejects_control_chars_and_nul() {
         assert!(safe_component("a\0b").is_err());
@@ -105,6 +108,7 @@ mod tests {
         assert!(safe_component("newline\nname").is_err());
     }
 
+    /// Windows-reserved names and trailing space/dot names are rejected.
     #[test]
     fn rejects_windows_reserved_and_trailing() {
         for name in ["CON", "nul", "Aux", "COM1", "LPT9", "CON.txt", "name ", "name."] {
@@ -112,6 +116,7 @@ mod tests {
         }
     }
 
+    /// A valid multi-segment relative path joins under the root.
     #[test]
     fn safe_join_builds_under_root() {
         let root = Path::new("/downloads");
@@ -120,6 +125,7 @@ mod tests {
         assert!(joined.starts_with(root));
     }
 
+    /// Paths that escape the root (or contain a bad component) are rejected.
     #[test]
     fn safe_join_rejects_escaping_paths() {
         let root = Path::new("/downloads");

@@ -26,6 +26,11 @@
 
   let value = $state(untrack(() => initial));
 
+  /**
+   * Submit the trimmed value (ignored when empty).
+   *
+   * @param event - the form submit event.
+   */
   function submit(event: Event): void {
     event.preventDefault();
     const trimmed = value.trim();

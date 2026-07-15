@@ -27,6 +27,9 @@ pub struct RetryPolicy {
 }
 
 impl Default for RetryPolicy {
+    /// The default retry policy: 5 attempts, 1s→32s exponential backoff, jitter on.
+    ///
+    /// Returns: the default [`RetryPolicy`].
     fn default() -> Self {
         RetryPolicy {
             max_attempts: 5,
@@ -106,6 +109,10 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
+    /// The default policy with jitter off, for deterministic timing assertions.
+    ///
+    /// Returns: a [`RetryPolicy`] identical to the default but with `jitter =
+    /// false`.
     fn no_jitter() -> RetryPolicy {
         RetryPolicy {
             jitter: false,
@@ -113,6 +120,7 @@ mod tests {
         }
     }
 
+    /// Backoff doubles per attempt and is capped at `max_delay`.
     #[test]
     fn backoff_doubles_and_caps() {
         let p = no_jitter();
@@ -125,6 +133,7 @@ mod tests {
         assert_eq!(p.backoff(20), Duration::from_secs(32)); // still capped
     }
 
+    /// Retries happen only for transient errors and only within the attempt limit.
     #[test]
     fn should_retry_only_transient_within_limit() {
         let p = no_jitter();
@@ -137,6 +146,7 @@ mod tests {
         assert!(!p.should_retry(1, &EngineError::NotFound("x".into())));
     }
 
+    /// `retry` re-invokes until success, waiting the cumulative backoff.
     #[tokio::test(start_paused = true)]
     async fn retry_runs_until_success_with_backoff() {
         let calls = Arc::new(AtomicU32::new(0));
@@ -164,6 +174,7 @@ mod tests {
         assert_eq!(start.elapsed(), Duration::from_secs(3));
     }
 
+    /// `retry` gives up immediately on a fatal error (one call only).
     #[tokio::test]
     async fn retry_stops_on_fatal_error() {
         let calls = Arc::new(AtomicU32::new(0));

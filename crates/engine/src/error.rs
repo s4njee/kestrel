@@ -121,6 +121,7 @@ fn is_transient_io(kind: io::ErrorKind) -> bool {
 mod tests {
     use super::*;
 
+    /// Connection-loss and timeout errors classify as retryable.
     #[test]
     fn connection_and_timeout_are_transient() {
         assert_eq!(
@@ -130,6 +131,7 @@ mod tests {
         assert_eq!(EngineError::Timeout.classify(), ErrorClass::Transient);
     }
 
+    /// Auth, permission, not-found, and disk-full errors are non-retryable.
     #[test]
     fn auth_permission_and_notfound_are_fatal() {
         assert_eq!(
@@ -147,6 +149,7 @@ mod tests {
         assert_eq!(EngineError::DiskFull.classify(), ErrorClass::Fatal);
     }
 
+    /// I/O errors classify by their `ErrorKind` (reset = transient, denied = fatal).
     #[test]
     fn io_errors_classify_by_kind() {
         let transient = EngineError::Io(io::Error::from(io::ErrorKind::ConnectionReset));

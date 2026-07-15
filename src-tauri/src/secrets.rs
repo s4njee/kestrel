@@ -130,14 +130,19 @@ impl KeyringStore {
     }
 }
 
+// Implements the [`SecretStore`] contract against the OS keychain; arguments
+// and returns are documented on the trait. `keyring::Error::NoEntry` is mapped
+// to the "absent" outcome so a missing secret is not treated as a failure.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl SecretStore for KeyringStore {
+    /// Stores (or replaces) the secret in the OS keychain.
     fn set(&self, key: &SecretRef, secret: &str) -> Result<(), SecretError> {
         self.entry(key)?
             .set_password(secret)
             .map_err(|e| SecretError::Backend(e.to_string()))
     }
 
+    /// Reads the secret; a missing entry maps to `Ok(None)`.
     fn get(&self, key: &SecretRef) -> Result<Option<Zeroizing<String>>, SecretError> {
         match self.entry(key)?.get_password() {
             Ok(secret) => Ok(Some(Zeroizing::new(secret))),
@@ -146,6 +151,7 @@ impl SecretStore for KeyringStore {
         }
     }
 
+    /// Deletes the secret; an absent entry is not an error.
     fn delete(&self, key: &SecretRef) -> Result<(), SecretError> {
         match self.entry(key)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -174,7 +180,10 @@ impl InMemoryStore {
     }
 }
 
+// Implements the [`SecretStore`] contract with an in-memory map; arguments and
+// returns are documented on the trait. Every operation is infallible here.
 impl SecretStore for InMemoryStore {
+    /// Inserts or replaces the secret in the in-memory map.
     fn set(&self, key: &SecretRef, secret: &str) -> Result<(), SecretError> {
         self.entries
             .lock()
@@ -183,6 +192,7 @@ impl SecretStore for InMemoryStore {
         Ok(())
     }
 
+    /// Returns the stored secret, or `Ok(None)` if absent.
     fn get(&self, key: &SecretRef) -> Result<Option<Zeroizing<String>>, SecretError> {
         Ok(self
             .entries
@@ -192,6 +202,7 @@ impl SecretStore for InMemoryStore {
             .cloned())
     }
 
+    /// Removes the secret if present (no-op otherwise).
     fn delete(&self, key: &SecretRef) -> Result<(), SecretError> {
         self.entries
             .lock()
@@ -215,6 +226,7 @@ mod tests {
         store.get(key).unwrap().map(|z| z.to_string())
     }
 
+    /// The keychain account name encodes `<uuid>:<kind>`.
     #[test]
     fn account_name_encodes_bookmark_and_kind() {
         let id = Uuid::nil();
@@ -228,6 +240,7 @@ mod tests {
         );
     }
 
+    /// A stored secret reads back unchanged.
     #[test]
     fn set_then_get_round_trips() {
         let store = InMemoryStore::new();
@@ -236,12 +249,14 @@ mod tests {
         assert_eq!(value(&store, &k).as_deref(), Some("hunter2"));
     }
 
+    /// A missing secret returns `Ok(None)`, not an error.
     #[test]
     fn get_absent_is_none_not_error() {
         let store = InMemoryStore::new();
         assert!(store.get(&key(SecretKind::Password)).unwrap().is_none());
     }
 
+    /// Setting an existing key replaces its value.
     #[test]
     fn set_replaces_existing_value() {
         let store = InMemoryStore::new();
@@ -251,6 +266,7 @@ mod tests {
         assert_eq!(value(&store, &k).as_deref(), Some("new"));
     }
 
+    /// Delete removes the secret and deleting again is a no-op.
     #[test]
     fn delete_removes_and_is_idempotent() {
         let store = InMemoryStore::new();
@@ -262,6 +278,7 @@ mod tests {
         store.delete(&k).unwrap();
     }
 
+    /// Password and passphrase secrets for one bookmark are stored separately.
     #[test]
     fn password_and_passphrase_are_independent() {
         let store = InMemoryStore::new();

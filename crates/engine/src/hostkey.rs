@@ -322,14 +322,23 @@ impl KnownHosts {
 mod tests {
     use super::*;
 
+    /// Build a [`HostKey`] from an algorithm name and raw blob.
+    ///
+    /// Arguments: `alg` — key algorithm; `blob` — raw key bytes.
+    /// Returns: the constructed [`HostKey`].
     fn key(alg: &str, blob: &[u8]) -> HostKey {
         HostKey::new(alg, blob.to_vec())
     }
 
+    /// The app `known_hosts` path inside a temp dir.
+    ///
+    /// Arguments: `dir` — the temp directory.
+    /// Returns: the `known_hosts` path.
     fn app_file(dir: &tempfile::TempDir) -> PathBuf {
         dir.path().join("known_hosts")
     }
 
+    /// Fingerprints are `SHA256:`-prefixed, unpadded base64 of the digest.
     #[test]
     fn fingerprint_is_sha256_base64_nopad() {
         let k = key("ssh-ed25519", b"hello");
@@ -339,6 +348,7 @@ mod tests {
         assert!(!fp.ends_with('='));
     }
 
+    /// A plain `host key` line matches that host and no other.
     #[test]
     fn plain_host_match_is_known() {
         let dir = tempfile::tempdir().unwrap();
@@ -351,6 +361,7 @@ mod tests {
         assert_eq!(kh.check("other.com", 22, &k), HostKeyStatus::Unknown);
     }
 
+    /// A `[host]:port` line matches only that host+port pair.
     #[test]
     fn bracketed_host_port_match() {
         let dir = tempfile::tempdir().unwrap();
@@ -364,6 +375,7 @@ mod tests {
         assert_eq!(kh.check("example.com", 22, &k), HostKeyStatus::Unknown);
     }
 
+    /// An OpenSSH hashed (`|1|salt|hash`) entry matches the hashed host.
     #[test]
     fn hashed_entry_match() {
         let dir = tempfile::tempdir().unwrap();
@@ -385,6 +397,7 @@ mod tests {
         assert_eq!(kh.check("wrong.example", 22, &k), HostKeyStatus::Unknown);
     }
 
+    /// A different key for a known host is reported as Changed (MITM signal).
     #[test]
     fn changed_key_is_detected() {
         let dir = tempfile::tempdir().unwrap();
@@ -402,6 +415,7 @@ mod tests {
         }
     }
 
+    /// A key matching an `@revoked` line is treated as Changed (never trusted).
     #[test]
     fn revoked_matching_key_is_changed() {
         let dir = tempfile::tempdir().unwrap();
@@ -416,6 +430,7 @@ mod tests {
         ));
     }
 
+    /// `add` makes a host Known and persists a well-formed line to disk.
     #[test]
     fn add_appends_and_persists() {
         let dir = tempfile::tempdir().unwrap();
@@ -436,6 +451,7 @@ mod tests {
         assert_eq!(reloaded.check("fresh.host", 22, &k), HostKeyStatus::Known);
     }
 
+    /// Adding a non-default port writes the `[host]:port` bracket form.
     #[test]
     fn nondefault_port_add_uses_bracket_form() {
         let dir = tempfile::tempdir().unwrap();

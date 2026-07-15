@@ -193,6 +193,9 @@ mod tests {
     /// Minimal implementation used only to prove the trait is object-safe.
     struct Dummy;
 
+    // Trivial object-safety stub: every method is a no-op returning an
+    // empty/default value. Arguments and returns follow the `RemoteFs` contract
+    // above; there is no per-method behavior worth documenting here.
     #[async_trait]
     impl RemoteFs for Dummy {
         async fn list(&self, _p: &str) -> Result<Vec<DirEntry>> {
@@ -239,6 +242,7 @@ mod tests {
         }
     }
 
+    /// `RemoteFs` is object-safe: usable as `Box<dyn RemoteFs>`.
     #[test]
     fn trait_is_object_safe() {
         let fs: Box<dyn RemoteFs> = Box::new(Dummy);
@@ -247,6 +251,7 @@ mod tests {
         assert!(!caps.supports_permissions);
     }
 
+    /// The dummy impl lists nothing (sanity check through the trait object).
     #[tokio::test]
     async fn dummy_list_is_empty() {
         let fs: Box<dyn RemoteFs> = Box::new(Dummy);

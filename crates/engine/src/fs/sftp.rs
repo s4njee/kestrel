@@ -60,8 +60,12 @@ impl SftpFs {
     }
 }
 
+// Implements the [`RemoteFs`] contract over one SFTP channel; arguments and
+// return values are documented on the trait declaration (`fs/mod.rs`). The
+// comments below note the SFTP specifics only.
 #[async_trait]
 impl RemoteFs for SftpFs {
+    /// Lists a remote directory, resolving symlink targets without following.
     async fn list(&self, path: &str) -> Result<Vec<DirEntry>> {
         let read_dir = self.session.read_dir(path).await.map_err(map_sftp)?;
         let mut entries = Vec::new();
@@ -83,6 +87,7 @@ impl RemoteFs for SftpFs {
         Ok(entries)
     }
 
+    /// Stats a remote path with lstat semantics (final symlink not followed).
     async fn stat(&self, path: &str) -> Result<Metadata> {
         // lstat semantics: do not follow the final symlink.
         let attrs = self.session.symlink_metadata(path).await.map_err(map_sftp)?;
@@ -97,6 +102,7 @@ impl RemoteFs for SftpFs {
         })
     }
 
+    /// Opens a remote file for reading and seeks to `offset`.
     async fn open_read(&self, path: &str, offset: u64) -> Result<BoxRead> {
         let mut file = self.session.open(path).await.map_err(map_sftp)?;
         if offset > 0 {
@@ -105,6 +111,8 @@ impl RemoteFs for SftpFs {
         Ok(Box::new(file))
     }
 
+    /// Opens a remote file for writing: `Create` truncates; `Resume` seeks to
+    /// the offset and keeps existing bytes.
     async fn open_write(&self, path: &str, mode: WriteMode) -> Result<BoxWrite> {
         let file = match mode {
             WriteMode::Create => self
@@ -128,22 +136,27 @@ impl RemoteFs for SftpFs {
         Ok(Box::new(file))
     }
 
+    /// Renames/moves a remote entry.
     async fn rename(&self, from: &str, to: &str) -> Result<()> {
         self.session.rename(from, to).await.map_err(map_sftp)
     }
 
+    /// Removes a single remote file.
     async fn remove_file(&self, path: &str) -> Result<()> {
         self.session.remove_file(path).await.map_err(map_sftp)
     }
 
+    /// Removes an empty remote directory (non-recursive).
     async fn remove_dir(&self, path: &str) -> Result<()> {
         self.session.remove_dir(path).await.map_err(map_sftp)
     }
 
+    /// Creates a remote directory (its parent must exist).
     async fn mkdir(&self, path: &str) -> Result<()> {
         self.session.create_dir(path).await.map_err(map_sftp)
     }
 
+    /// Sets remote permission bits via an SFTP setstat.
     async fn set_permissions(&self, path: &str, mode: u32) -> Result<()> {
         let attrs = FileAttributes {
             permissions: Some(mode & 0o7777),
@@ -155,10 +168,12 @@ impl RemoteFs for SftpFs {
             .map_err(map_sftp)
     }
 
+    /// Reads a remote symlink's target path.
     async fn read_link(&self, path: &str) -> Result<String> {
         self.session.read_link(path).await.map_err(map_sftp)
     }
 
+    /// SFTP supports both permissions and symlinks.
     fn capabilities(&self) -> FsCapabilities {
         FsCapabilities {
             supports_permissions: true,

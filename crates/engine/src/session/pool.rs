@@ -91,6 +91,10 @@ impl PooledChannel {
 }
 
 impl Drop for PooledChannel {
+    /// Return the borrowed channel to the pool's idle list on drop.
+    ///
+    /// Arguments: `&mut self`.
+    /// Returns: `()`. Reclaims the channel for reuse instead of closing it.
     fn drop(&mut self) {
         if let Some(channel) = self.channel.take() {
             self.inner.idle.lock().unwrap().push(channel);

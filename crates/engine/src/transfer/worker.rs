@@ -376,6 +376,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use uuid::Uuid;
 
+    /// The progress aggregator emits at most one batched event per ~100 ms.
     #[tokio::test(start_paused = true)]
     async fn aggregator_batches_at_most_10hz() {
         let (tx, mut rx) = broadcast::channel(1024);

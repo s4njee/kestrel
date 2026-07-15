@@ -3,7 +3,12 @@
 // Works with the low 9 mode bits as a 9-element boolean array in the order
 // [owner r,w,x, group r,w,x, other r,w,x].
 
-/** Convert a mode to its 9 rwx bits (owner, group, other). */
+/**
+ * Convert a mode to its 9 rwx bits (owner, group, other).
+ *
+ * @param mode - a Unix permission mode (only the low 9 bits are read).
+ * @returns a 9-element boolean array [owner r,w,x, group r,w,x, other r,w,x].
+ */
 export function modeToBits(mode: number): boolean[] {
   const bits: boolean[] = [];
   for (let i = 0; i < 9; i++) {
@@ -12,7 +17,12 @@ export function modeToBits(mode: number): boolean[] {
   return bits;
 }
 
-/** Convert 9 rwx bits back to a mode value. */
+/**
+ * Convert 9 rwx bits back to a mode value.
+ *
+ * @param bits - a 9-element boolean array in [owner,group,other]×[r,w,x] order.
+ * @returns the corresponding mode (low 9 bits set).
+ */
 export function bitsToMode(bits: boolean[]): number {
   let mode = 0;
   for (let i = 0; i < 9; i++) {
@@ -21,7 +31,12 @@ export function bitsToMode(bits: boolean[]): number {
   return mode;
 }
 
-/** Format the low 9 bits of a mode as a 3-digit octal string (e.g. "644"). */
+/**
+ * Format the low 9 bits of a mode as a 3-digit octal string (e.g. "644").
+ *
+ * @param mode - a Unix permission mode.
+ * @returns the zero-padded 3-digit octal representation of `mode & 0o777`.
+ */
 export function formatOctal(mode: number): string {
   return (mode & 0o777).toString(8).padStart(3, "0");
 }
@@ -38,7 +53,12 @@ export function parseOctal(text: string): number | null {
   return value >= 0 && value <= 0o7777 ? value & 0o777 : null;
 }
 
-/** Format a mode as an rwx string (e.g. "rwxr-xr--"). */
+/**
+ * Format a mode as an rwx string (e.g. "rwxr-xr--").
+ *
+ * @param mode - a Unix permission mode (low 9 bits).
+ * @returns the 9-character symbolic representation, with `-` for unset bits.
+ */
 export function formatRwx(mode: number): string {
   const chars = ["r", "w", "x"];
   return modeToBits(mode)

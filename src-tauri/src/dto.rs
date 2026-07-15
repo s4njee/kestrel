@@ -35,6 +35,10 @@ fn kind_str(kind: EntryKind) -> &'static str {
 }
 
 impl From<DirEntry> for DirEntryDto {
+    /// Convert an engine [`DirEntry`] into its webview DTO.
+    ///
+    /// Arguments: `e` — the engine directory entry.
+    /// Returns: the camelCase [`DirEntryDto`] sent to the webview.
     fn from(e: DirEntry) -> Self {
         DirEntryDto {
             name: e.name,
@@ -144,6 +148,10 @@ pub enum PromptReplyDto {
 }
 
 impl From<PromptReplyDto> for PromptReply {
+    /// Convert an inbound reply DTO into the engine [`PromptReply`].
+    ///
+    /// Arguments: `dto` — the webview-supplied reply.
+    /// Returns: the engine prompt reply.
     fn from(dto: PromptReplyDto) -> Self {
         match dto {
             PromptReplyDto::HostKey { accept } => PromptReply::HostKey { accept },
@@ -158,6 +166,7 @@ impl From<PromptReplyDto> for PromptReply {
 mod tests {
     use super::*;
 
+    /// A password connect request deserializes into password auth params.
     #[test]
     fn connect_request_password_deserializes() {
         let json = r#"{"host":"h","port":22,"username":"u","auth":{"method":"password","password":"pw"}}"#;
@@ -168,6 +177,7 @@ mod tests {
         assert!(matches!(params.auth, AuthMethod::Password(_)));
     }
 
+    /// A key connect request deserializes into key-file auth params.
     #[test]
     fn connect_request_key_deserializes() {
         let json = r#"{"host":"h","port":2222,"username":"u","auth":{"method":"key","path":"/k","passphrase":null}}"#;
@@ -175,6 +185,7 @@ mod tests {
         assert!(matches!(req.into_params().auth, AuthMethod::KeyFile { .. }));
     }
 
+    /// `DirEntryDto` serializes with camelCase keys (e.g. `linkTarget`).
     #[test]
     fn dir_entry_serializes_camel_case() {
         let dto = DirEntryDto {
@@ -191,6 +202,7 @@ mod tests {
         assert!(json.contains("\"kind\":\"file\""));
     }
 
+    /// A host-key prompt reply deserializes into the tagged variant.
     #[test]
     fn prompt_reply_deserializes() {
         let json = r#"{"type":"hostKey","accept":true}"#;

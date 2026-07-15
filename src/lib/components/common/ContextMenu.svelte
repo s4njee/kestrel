@@ -27,12 +27,22 @@
 
   let { x, y, items, onClose }: Props = $props();
 
+  /**
+   * Activate a menu item: run its action and close (ignoring disabled/separators).
+   *
+   * @param item - the clicked menu item.
+   */
   function choose(item: MenuItem): void {
     if (item.disabled || item.separator) return;
     onClose();
     item.action?.();
   }
 
+  /**
+   * Close the menu on Escape.
+   *
+   * @param event - the keydown event.
+   */
   function onKey(event: KeyboardEvent): void {
     if (event.key === "Escape") onClose();
   }

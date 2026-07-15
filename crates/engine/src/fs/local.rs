@@ -67,6 +67,10 @@ fn perms(meta: &std::fs::Metadata) -> Option<u32> {
     Some(meta.permissions().mode() & 0o7777)
 }
 
+/// Non-Unix stand-in for [`perms`]: permission bits are unavailable.
+///
+/// Arguments: `_meta` — ignored.
+/// Returns: always `None`.
 #[cfg(not(unix))]
 fn perms(_meta: &std::fs::Metadata) -> Option<u32> {
     None
@@ -86,8 +90,14 @@ fn kind_of(ft: std::fs::FileType) -> EntryKind {
     }
 }
 
+// Implements the [`RemoteFs`] contract over the local filesystem via
+// `tokio::fs`; each method's arguments and return value are documented on the
+// trait declaration (see `fs/mod.rs`). The comments below note the local
+// specifics only.
 #[async_trait]
 impl RemoteFs for LocalFs {
+    /// Lists a directory with `tokio::fs::read_dir`; symlinks are reported as
+    /// links (never followed) with their target resolved.
     async fn list(&self, path: &str) -> Result<Vec<DirEntry>> {
         let mut reader = fs::read_dir(path).await.map_err(|e| map_io(path, e))?;
         let mut entries = Vec::new();
@@ -124,6 +134,7 @@ impl RemoteFs for LocalFs {
         Ok(entries)
     }
 
+    /// Stats a path with `symlink_metadata` (does not follow the final link).
     async fn stat(&self, path: &str) -> Result<Metadata> {
         let meta = fs::symlink_metadata(path).await.map_err(|e| map_io(path, e))?;
         let kind = kind_of(meta.file_type());
@@ -145,6 +156,7 @@ impl RemoteFs for LocalFs {
         })
     }
 
+    /// Opens a file for reading and seeks to `offset`.
     async fn open_read(&self, path: &str, offset: u64) -> Result<BoxRead> {
         let mut file = fs::File::open(path).await.map_err(|e| map_io(path, e))?;
         if offset > 0 {
@@ -155,6 +167,8 @@ impl RemoteFs for LocalFs {
         Ok(Box::new(file))
     }
 
+    /// Opens a file for writing: `Create` truncates; `Resume` keeps existing
+    /// bytes and seeks to the offset.
     async fn open_write(&self, path: &str, mode: WriteMode) -> Result<BoxWrite> {
         let file = match mode {
             WriteMode::Create => fs::File::create(path).await.map_err(|e| map_io(path, e))?,
@@ -175,22 +189,27 @@ impl RemoteFs for LocalFs {
         Ok(Box::new(file))
     }
 
+    /// Renames/moves an entry with `tokio::fs::rename`.
     async fn rename(&self, from: &str, to: &str) -> Result<()> {
         fs::rename(from, to).await.map_err(|e| map_io(from, e))
     }
 
+    /// Removes a single file.
     async fn remove_file(&self, path: &str) -> Result<()> {
         fs::remove_file(path).await.map_err(|e| map_io(path, e))
     }
 
+    /// Removes an empty directory (non-recursive).
     async fn remove_dir(&self, path: &str) -> Result<()> {
         fs::remove_dir(path).await.map_err(|e| map_io(path, e))
     }
 
+    /// Creates a directory (its parent must already exist).
     async fn mkdir(&self, path: &str) -> Result<()> {
         fs::create_dir(path).await.map_err(|e| map_io(path, e))
     }
 
+    /// Sets Unix permission bits from `mode`.
     #[cfg(unix)]
     async fn set_permissions(&self, path: &str, mode: u32) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
@@ -200,17 +219,20 @@ impl RemoteFs for LocalFs {
             .map_err(|e| map_io(path, e))
     }
 
+    /// No-op on non-Unix platforms (no mode bits; see [`capabilities`]).
     #[cfg(not(unix))]
     async fn set_permissions(&self, _path: &str, _mode: u32) -> Result<()> {
         // No Unix mode bits on this platform; capabilities() advertises this.
         Ok(())
     }
 
+    /// Reads a symlink's target path.
     async fn read_link(&self, path: &str) -> Result<String> {
         let target = fs::read_link(path).await.map_err(|e| map_io(path, e))?;
         Ok(target.to_string_lossy().into_owned())
     }
 
+    /// Local FS supports permissions on Unix and always supports symlinks.
     fn capabilities(&self) -> FsCapabilities {
         FsCapabilities {
             supports_permissions: cfg!(unix),
@@ -229,10 +251,15 @@ mod tests {
         (LocalFs::new(), tempfile::tempdir().unwrap())
     }
 
+    /// Build an absolute path string for `name` inside a temp dir.
+    ///
+    /// Arguments: `dir` — the temp directory; `name` — the entry name.
+    /// Returns: the joined path as an owned string.
     fn path_str(dir: &tempfile::TempDir, name: &str) -> String {
         dir.path().join(name).to_string_lossy().into_owned()
     }
 
+    /// Write then read a file back through the trait round-trips its content.
     #[tokio::test]
     async fn create_write_read_roundtrip() {
         let (fs, dir) = setup();
@@ -249,6 +276,7 @@ mod tests {
         assert_eq!(buf, "hello world");
     }
 
+    /// `open_read` with an offset starts reading at that byte.
     #[tokio::test]
     async fn open_read_honors_offset() {
         let (fs, dir) = setup();
@@ -261,6 +289,7 @@ mod tests {
         assert_eq!(buf, b"456789");
     }
 
+    /// `Resume { offset }` writes preserve earlier bytes and continue at offset.
     #[tokio::test]
     async fn resume_write_appends_at_offset() {
         let (fs, dir) = setup();
@@ -280,6 +309,7 @@ mod tests {
         assert_eq!(contents, b"AAAABBBB");
     }
 
+    /// `list` reports entry kinds and preserves Unicode names.
     #[tokio::test]
     async fn list_reports_kinds_and_unicode_names() {
         let (fs, dir) = setup();
@@ -301,6 +331,7 @@ mod tests {
         assert_eq!(file.size, 1);
     }
 
+    /// mkdir → rename → remove_dir behave and update stat results.
     #[tokio::test]
     async fn mkdir_rename_remove() {
         let (fs, dir) = setup();
@@ -315,6 +346,7 @@ mod tests {
         assert!(fs.stat(&b).await.is_err());
     }
 
+    /// Statting a missing path maps to `EngineError::NotFound`.
     #[tokio::test]
     async fn missing_path_maps_to_not_found() {
         let (fs, dir) = setup();
@@ -323,6 +355,7 @@ mod tests {
         assert!(matches!(err, EngineError::NotFound(_)));
     }
 
+    /// `remove_recursive` deletes a nested directory tree entirely.
     #[tokio::test]
     async fn remove_recursive_deletes_tree() {
         let (fs, dir) = setup();
@@ -336,6 +369,7 @@ mod tests {
         assert!(fs.stat(&base).await.is_err());
     }
 
+    /// Setting then reading Unix permission bits round-trips (Unix only).
     #[cfg(unix)]
     #[tokio::test]
     async fn set_and_read_permissions() {
@@ -349,6 +383,7 @@ mod tests {
         assert!(fs.capabilities().supports_permissions);
     }
 
+    /// A symlink is reported as `Symlink` with its resolved target (Unix only).
     #[cfg(unix)]
     #[tokio::test]
     async fn symlink_is_reported_with_target() {

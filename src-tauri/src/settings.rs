@@ -149,6 +149,7 @@ impl SettingsStore {
 mod tests {
     use super::*;
 
+    /// A missing settings file yields the defaults.
     #[test]
     fn missing_file_yields_defaults() {
         let dir = tempfile::tempdir().unwrap();
@@ -156,6 +157,7 @@ mod tests {
         assert_eq!(store.get(), Settings::default());
     }
 
+    /// Saved settings round-trip from disk and record the schema version.
     #[test]
     fn save_round_trips_and_records_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -174,6 +176,7 @@ mod tests {
         assert_eq!(SettingsStore::load(path).get(), saved);
     }
 
+    /// Concurrency is clamped into 1..=8 on save.
     #[test]
     fn concurrency_is_clamped() {
         let dir = tempfile::tempdir().unwrap();
@@ -182,6 +185,7 @@ mod tests {
         assert_eq!(store.save(Settings { concurrency: 0, ..Settings::default() }).concurrency, 1);
     }
 
+    /// A malformed settings file falls back to the defaults.
     #[test]
     fn malformed_file_falls_back_to_defaults() {
         let dir = tempfile::tempdir().unwrap();

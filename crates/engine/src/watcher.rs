@@ -141,6 +141,7 @@ fn map_notify(e: notify::Error) -> EngineError {
 mod tests {
     use super::*;
 
+    /// Creating a file in the watched directory yields a change notification.
     #[test]
     fn emits_after_a_file_is_created() {
         let dir = tempfile::tempdir().unwrap();
@@ -156,6 +157,7 @@ mod tests {
         assert_eq!(got, dir.path());
     }
 
+    /// A burst of changes debounces into a single notification.
     #[test]
     fn coalesces_a_burst_into_one_notification() {
         let dir = tempfile::tempdir().unwrap();
@@ -173,6 +175,7 @@ mod tests {
         assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
     }
 
+    /// After retargeting, only changes in the new directory notify.
     #[test]
     fn retargets_to_the_new_directory() {
         let a = tempfile::tempdir().unwrap();
