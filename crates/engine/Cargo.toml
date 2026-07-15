@@ -13,5 +13,7 @@ description = "Protocol-agnostic file-transfer and SSH/SFTP session engine for s
 
 [dependencies]
 thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]

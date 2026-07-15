@@ -81,7 +81,7 @@ Goal: a running empty shell on all 3 OSes + workspace + CI. No SSH yet.
 
 Goal: connect to a real SFTP server (password or key file), TOFU host keys, browse both panes.
 
-- [ ] **E1-S1 — Engine core types: errors + `RemoteFs` trait** (S)
+- [x] **E1-S1 — Engine core types: errors + `RemoteFs` trait** (S)
   - Do: `error.rs` (`EngineError` via thiserror + `classify() -> Transient|Fatal`), `fs/mod.rs` exactly per the trait in Appendix A (plus `DirEntry { name, path, kind: File|Dir|Symlink, size, mtime, permissions: Option<u32>, link_target: Option<String> }`, `Metadata`, `WriteMode::{Create, Resume{offset}}`, `FsCapabilities { supports_permissions, supports_symlinks }`).
   - Accept: unit tests for classify; trait object-safe (`Box<dyn RemoteFs>` compiles).
 - [ ] **E1-S2 — `LocalFs`** (S)
