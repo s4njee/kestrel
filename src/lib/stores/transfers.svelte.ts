@@ -1,8 +1,10 @@
 // transfers.svelte.ts — Transfer queue state (Svelte 5 runes).
 //
-// Fed by the transfer event channel (see ipc/events.ts). Entries are seeded by
-// the download/upload actions when a transfer is enqueued (they know the name,
-// direction, and size), then updated in place by state and progress events.
+// Driven entirely by the transfer event channel (see ipc/events.ts): each state
+// event upserts a row (self-contained with name/size/direction), and progress
+// events update bytes/rate. No frontend seeding is needed, so recursive
+// directory transfers — whose per-file rows are created backend-side — appear
+// automatically.
 
 import type { TransferDirection, TransferStateStr } from "$lib/ipc/commands";
 
@@ -18,12 +20,15 @@ export interface Transfer {
   error: string | null;
 }
 
-/** Seed info supplied when a transfer is enqueued. */
-export interface TransferSeed {
+/** Fields carried by a transfer state event. */
+export interface TransferStateUpdate {
   id: string;
-  direction: TransferDirection;
+  state: TransferStateStr;
   name: string;
   size: number;
+  bytes: number;
+  direction: TransferDirection;
+  error: string | null;
 }
 
 class TransfersStore {
@@ -45,35 +50,31 @@ class TransfersStore {
   }
 
   /**
-   * Seed a newly enqueued transfer.
+   * Upsert a transfer from a (self-contained) state event.
    *
-   * @param seed - id/direction/name/size known at enqueue time.
+   * @param update - id/state/name/size/bytes/direction/error from the event.
    */
-  add(seed: TransferSeed): void {
-    this.#list = [
-      ...this.#list,
-      {
-        id: seed.id,
-        direction: seed.direction,
-        name: seed.name,
-        state: "queued",
-        bytes: 0,
-        size: seed.size,
-        rateBps: 0,
-        error: null,
-      },
-    ];
-  }
-
-  /**
-   * Apply a state change from an event.
-   *
-   * @param id - the transfer id.
-   * @param state - the new state.
-   * @param error - failure message, if any.
-   */
-  setState(id: string, state: TransferStateStr, error: string | null): void {
-    this.#list = this.#list.map((t) => (t.id === id ? { ...t, state, error } : t));
+  applyState(update: TransferStateUpdate): void {
+    const existing = this.#list.find((t) => t.id === update.id);
+    if (existing) {
+      this.#list = this.#list.map((t) =>
+        t.id === update.id ? { ...t, state: update.state, error: update.error } : t,
+      );
+    } else {
+      this.#list = [
+        ...this.#list,
+        {
+          id: update.id,
+          direction: update.direction,
+          name: update.name,
+          state: update.state,
+          bytes: update.bytes,
+          size: update.size,
+          rateBps: 0,
+          error: update.error,
+        },
+      ];
+    }
   }
 
   /**

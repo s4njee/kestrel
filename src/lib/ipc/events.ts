@@ -38,7 +38,15 @@ export function routeSessionEvent(event: SessionEvent): void {
 export function routeTransferEvent(event: TransferEvent): void {
   switch (event.type) {
     case "state":
-      transfers.setState(event.id, event.state, event.error);
+      transfers.applyState({
+        id: event.id,
+        state: event.state,
+        name: event.name,
+        size: event.size,
+        bytes: event.bytes,
+        direction: event.direction,
+        error: event.error,
+      });
       break;
     case "progressBatch":
       transfers.setProgress(event.items);

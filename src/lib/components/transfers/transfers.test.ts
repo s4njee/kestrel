@@ -23,14 +23,31 @@ function transfer(overrides: Partial<Transfer> = {}): Transfer {
 describe("transfers store", () => {
   beforeEach(() => transfers.clearCompleted());
 
-  it("seeds, updates state and progress, and counts active", () => {
-    transfers.add({ id: "a", direction: "download", name: "a.bin", size: 100 });
+  it("upserts from state events, updates progress, and counts active", () => {
+    transfers.applyState({
+      id: "a",
+      state: "running",
+      name: "a.bin",
+      size: 100,
+      bytes: 0,
+      direction: "download",
+      error: null,
+    });
     expect(transfers.activeCount).toBe(1);
+    expect(transfers.list[0].name).toBe("a.bin");
 
     transfers.setProgress([{ id: "a", bytes: 50, rateBps: 500 }]);
     expect(transfers.list[0].bytes).toBe(50);
 
-    transfers.setState("a", "done", null);
+    transfers.applyState({
+      id: "a",
+      state: "done",
+      name: "a.bin",
+      size: 100,
+      bytes: 100,
+      direction: "download",
+      error: null,
+    });
     expect(transfers.activeCount).toBe(0);
 
     transfers.clearCompleted();

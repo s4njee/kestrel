@@ -1,5 +1,6 @@
 //! commands/transfer.rs — Transfer queue commands and the transfer-event bridge.
 
+use sftpapp_engine::Direction;
 use tauri::ipc::Channel;
 use tauri::State;
 use uuid::Uuid;
@@ -24,6 +25,33 @@ pub async fn enqueue_transfers(
     }
     let ids = state.engine.enqueue_transfers(parsed);
     Ok(ids.into_iter().map(|id| id.to_string()).collect())
+}
+
+/// Recursively enqueue a directory transfer.
+///
+/// Arguments: `session_id`, `direction` ("upload"/"download"), `src` (source
+/// directory), `dest_parent` (destination directory to create the tree under).
+/// Returns: the enumerated file transfer ids.
+#[tauri::command]
+pub async fn enqueue_directory(
+    state: State<'_, AppState>,
+    session_id: String,
+    direction: String,
+    src: String,
+    dest_parent: String,
+) -> CmdResult<Vec<String>> {
+    let id = Uuid::parse_str(&session_id).map_err(|e| e.to_string())?;
+    let direction = match direction.as_str() {
+        "upload" => Direction::Upload,
+        "download" => Direction::Download,
+        other => return Err(format!("unknown direction: {other}")),
+    };
+    let ids = state
+        .engine
+        .enqueue_directory(id, direction, &src, &dest_parent)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(ids.into_iter().map(|i| i.to_string()).collect())
 }
 
 /// Cancel a transfer.
@@ -86,9 +114,10 @@ pub async fn subscribe_transfer_events(
     channel: Channel<TransferEventDto>,
 ) -> CmdResult<()> {
     let mut rx = state.engine.subscribe();
+    let engine = state.engine.clone();
     tauri::async_runtime::spawn(async move {
         while let Ok(event) = rx.recv().await {
-            if let Some(dto) = TransferEventDto::from_engine(event) {
+            if let Some(dto) = TransferEventDto::from_engine(event, &engine) {
                 if channel.send(dto).is_err() {
                     break;
                 }

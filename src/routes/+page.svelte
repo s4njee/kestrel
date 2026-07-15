@@ -20,11 +20,12 @@
     localListDir,
     listDir,
     enqueueTransfers,
+    enqueueDirectory,
     type SessionInfo,
-    type TransferRequest,
+    type TransferDirection,
   } from "$lib/ipc/commands";
+  import type { DirEntry } from "$lib/ipc/commands";
   import { buildTransferRequests } from "$lib/transfer";
-  import { basename } from "$lib/utils/path";
   import Toolbar from "$lib/components/layout/Toolbar.svelte";
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
@@ -97,48 +98,42 @@
   let canUpload = $derived(connected && localPane.selected.size > 0);
   let canDownload = $derived(connected && remotePane.selected.size > 0);
 
-  /** Download the remote pane's selected files into the local pane's folder. */
+  /** Download the remote pane's selection into the local pane's folder. */
   async function download(): Promise<void> {
     const id = sessions.active?.info.id;
     if (!id) return;
-    const requests = buildTransferRequests(
-      "download",
-      id,
-      remotePane.selectedEntries,
-      localPane.path,
-    );
-    await startTransfers(requests, "download");
+    await runTransfers("download", id, remotePane.selectedEntries, localPane.path);
   }
 
-  /** Upload the local pane's selected files into the remote pane's folder. */
+  /** Upload the local pane's selection into the remote pane's folder. */
   async function upload(): Promise<void> {
     const id = sessions.active?.info.id;
     if (!id || !remotePane.path) return;
-    const requests = buildTransferRequests(
-      "upload",
-      id,
-      localPane.selectedEntries,
-      remotePane.path,
-    );
-    await startTransfers(requests, "upload");
+    await runTransfers("upload", id, localPane.selectedEntries, remotePane.path);
   }
 
-  /** Enqueue requests, seed the transfers store, and reveal the dock. */
-  async function startTransfers(
-    requests: TransferRequest[],
-    direction: "upload" | "download",
+  /**
+   * Enqueue transfers for a selection: files as direct transfers, directories
+   * recursively. Rows appear via transfer state events (no seeding needed).
+   */
+  async function runTransfers(
+    direction: TransferDirection,
+    sessionId: string,
+    entries: DirEntry[],
+    destDir: string,
   ): Promise<void> {
-    if (requests.length === 0) return;
-    const ids = await enqueueTransfers(requests);
-    ids.forEach((tid, i) =>
-      transfers.add({
-        id: tid,
-        direction,
-        name: basename(requests[i].dest),
-        size: requests[i].size,
-      }),
-    );
-    ui.setTransferPanelExpanded(true);
+    const fileRequests = buildTransferRequests(direction, sessionId, entries, destDir);
+    const dirs = entries.filter((e) => e.kind === "dir");
+    let any = false;
+    if (fileRequests.length > 0) {
+      await enqueueTransfers(fileRequests);
+      any = true;
+    }
+    for (const dir of dirs) {
+      await enqueueDirectory(sessionId, direction, dir.path, destDir);
+      any = true;
+    }
+    if (any) ui.setTransferPanelExpanded(true);
   }
 
   /** Refresh the active pane. */

@@ -60,7 +60,16 @@ export type TransferStateStr = "queued" | "running" | "paused" | "done" | "faile
 /** Transfer events pushed over the transfer channel (mirrors `TransferEventDto`). */
 export type TransferEvent =
   | { type: "progressBatch"; items: { id: string; bytes: number; rateBps: number }[] }
-  | { type: "state"; id: string; state: TransferStateStr; error: string | null };
+  | {
+      type: "state";
+      id: string;
+      state: TransferStateStr;
+      error: string | null;
+      name: string;
+      size: number;
+      bytes: number;
+      direction: TransferDirection;
+    };
 
 /** Session/prompt events pushed over the channel (mirrors `SessionEventDto`). */
 export type SessionEvent =
@@ -171,6 +180,24 @@ export function subscribeSessionEvents(onEvent: (event: SessionEvent) => void): 
  */
 export function enqueueTransfers(requests: TransferRequest[]): Promise<string[]> {
   return invoke("enqueue_transfers", { requests });
+}
+
+/**
+ * Recursively enqueue a directory transfer.
+ *
+ * @param sessionId - the session.
+ * @param direction - "upload" or "download".
+ * @param src - the source directory.
+ * @param destParent - the destination directory to create the tree under.
+ * @returns the enumerated file transfer ids.
+ */
+export function enqueueDirectory(
+  sessionId: string,
+  direction: TransferDirection,
+  src: string,
+  destParent: string,
+): Promise<string[]> {
+  return invoke("enqueue_directory", { sessionId, direction, src, destParent });
 }
 
 /**

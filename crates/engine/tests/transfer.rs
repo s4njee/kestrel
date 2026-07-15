@@ -295,3 +295,56 @@ async fn resume_continues_from_existing_part() {
     assert_eq!(state, TransferState::Done);
     assert_eq!(tokio::fs::read(&dest).await.unwrap(), content);
 }
+
+async fn await_all_done(events: &mut broadcast::Receiver<EngineEvent>, ids: &[TransferId]) {
+    let mut done = std::collections::HashSet::new();
+    while done.len() < ids.len() {
+        if let Ok(EngineEvent::TransferStateChanged { id, state, .. }) = events.recv().await {
+            if ids.contains(&id) && state == TransferState::Done {
+                done.insert(id);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn recursive_download_transfers_tree_and_skips_symlinks() {
+    let server = support::start_password_server("u", "p").await;
+    let root = server.root();
+    std::fs::create_dir_all(root.join("proj/sub")).unwrap();
+    std::fs::write(root.join("proj/a.txt"), b"aaa").unwrap();
+    std::fs::write(root.join("proj/sub/b.txt"), b"bbbb").unwrap();
+    std::os::unix::fs::symlink("a.txt", root.join("proj/link")).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let dl = dir.path().join("dl");
+    std::fs::create_dir(&dl).unwrap();
+    let ids = engine
+        .enqueue_directory(
+            id,
+            Direction::Download,
+            "/proj",
+            &dl.to_string_lossy(),
+        )
+        .await
+        .unwrap();
+
+    // Two files enqueued; the symlink is skipped.
+    assert_eq!(ids.len(), 2);
+    await_all_done(&mut events, &ids).await;
+
+    assert_eq!(tokio::fs::read(dl.join("proj/a.txt")).await.unwrap(), b"aaa");
+    assert_eq!(
+        tokio::fs::read(dl.join("proj/sub/b.txt")).await.unwrap(),
+        b"bbbb"
+    );
+    assert!(!dl.join("proj/link").exists(), "symlink must be skipped");
+}

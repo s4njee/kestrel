@@ -72,6 +72,7 @@ pub fn run() {
             commands::local::local_home_dir,
             commands::local::local_list_dir,
             commands::transfer::enqueue_transfers,
+            commands::transfer::enqueue_directory,
             commands::transfer::cancel_transfer,
             commands::transfer::pause_transfer,
             commands::transfer::resume_transfer,

@@ -20,14 +20,46 @@ use tokio::sync::{broadcast, Mutex};
 use crate::auth::ConnectParams;
 use crate::error::{EngineError, Result};
 use crate::events::{EngineEvent, Prompts, SessionId};
+use crate::fs::local::LocalFs;
+use crate::fs::{EntryKind, RemoteFs};
 use crate::hostkey::KnownHosts;
-use crate::transfer::{TransferId, TransferItem, TransferQueue, TransferRequest};
+use crate::pathsafe::safe_component;
+use crate::transfer::{Direction, TransferId, TransferItem, TransferQueue, TransferRequest};
 
 pub use session::Session;
 
 /// Capacity of the engine event broadcast channel. Older events are dropped for
 /// slow subscribers (the shell resubscribes on reconnect).
 const EVENT_CHANNEL_CAPACITY: usize = 512;
+
+/// The final component of a path (handles both `/` and `\` separators).
+///
+/// Arguments: `path` — a file or directory path.
+/// Returns: the last path segment.
+fn base_name(path: &str) -> &str {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(path)
+}
+
+/// Join a child name onto a parent path.
+///
+/// Arguments: `parent` — the directory; `name` — the child; `local` — whether
+/// the destination is a local OS path (true) or a remote POSIX path (false).
+/// Returns: the joined path string.
+fn join_child(parent: &str, name: &str, local: bool) -> String {
+    if local {
+        std::path::Path::new(parent)
+            .join(name)
+            .to_string_lossy()
+            .into_owned()
+    } else if parent.ends_with('/') {
+        format!("{parent}{name}")
+    } else {
+        format!("{parent}/{name}")
+    }
+}
 
 /// The engine: session registry, event bus, prompts, and host-key store.
 ///
@@ -73,6 +105,90 @@ impl Engine {
     /// Returns: the new transfer ids in request order.
     pub fn enqueue_transfers(&self, requests: Vec<TransferRequest>) -> Vec<TransferId> {
         self.queue.enqueue(requests)
+    }
+
+    /// Recursively enqueue a directory transfer.
+    ///
+    /// Walks `src_dir`, creating the destination directory tree (`dest_parent /
+    /// basename(src_dir)/…`) on the fly and enqueuing one transfer per file.
+    /// Symlinks are skipped. For downloads, every remote name is validated by
+    /// [`safe_component`](crate::pathsafe::safe_component) before it touches the
+    /// local filesystem.
+    ///
+    /// Arguments:
+    /// - `session_id`: the session.
+    /// - `direction`: upload or download.
+    /// - `src_dir`: the source directory.
+    /// - `dest_parent`: the destination directory to create the tree under.
+    ///
+    /// Returns: the transfer ids for the enumerated files.
+    pub async fn enqueue_directory(
+        &self,
+        session_id: SessionId,
+        direction: Direction,
+        src_dir: &str,
+        dest_parent: &str,
+    ) -> Result<Vec<TransferId>> {
+        let session = self
+            .session(session_id)
+            .ok_or_else(|| EngineError::NotFound(format!("session {session_id}")))?;
+        let remote = session.remote_fs();
+        let local = LocalFs::new();
+
+        // Choose source/destination filesystems; `dest_is_local` gates path
+        // sanitization (downloads write untrusted remote names to local disk).
+        let (src_fs, dest_fs, dest_is_local): (&dyn RemoteFs, &dyn RemoteFs, bool) = match direction
+        {
+            Direction::Download => (&remote, &local, true),
+            Direction::Upload => (&local, &remote, false),
+        };
+
+        let name = base_name(src_dir);
+        if dest_is_local {
+            safe_component(name)?;
+        }
+        let top_dest = join_child(dest_parent, name, dest_is_local);
+        let _ = dest_fs.mkdir(&top_dest).await; // ignore "already exists"
+
+        // Depth-first walk; collect (src, dest, size) for files, mkdir dirs.
+        let mut files: Vec<(String, String, u64)> = Vec::new();
+        let mut stack = vec![(src_dir.to_string(), top_dest.clone())];
+        while let Some((src, dest)) = stack.pop() {
+            for entry in src_fs.list(&src).await? {
+                match entry.kind {
+                    EntryKind::Symlink => {
+                        tracing::info!(path = %entry.path, "skipping symlink in recursive transfer");
+                    }
+                    EntryKind::Dir => {
+                        if dest_is_local {
+                            safe_component(&entry.name)?;
+                        }
+                        let child = join_child(&dest, &entry.name, dest_is_local);
+                        let _ = dest_fs.mkdir(&child).await;
+                        stack.push((entry.path, child));
+                    }
+                    EntryKind::File => {
+                        if dest_is_local {
+                            safe_component(&entry.name)?;
+                        }
+                        let child = join_child(&dest, &entry.name, dest_is_local);
+                        files.push((entry.path, child, entry.size));
+                    }
+                }
+            }
+        }
+
+        let requests = files
+            .into_iter()
+            .map(|(src, dest, size)| TransferRequest {
+                session_id,
+                direction,
+                src,
+                dest,
+                size,
+            })
+            .collect();
+        Ok(self.queue.enqueue(requests))
     }
 
     /// Cancel a transfer.
