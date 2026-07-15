@@ -26,6 +26,13 @@ pub struct ProgressSample {
     pub rate_bps: f64,
 }
 
+/// Size/mtime of one side of a transfer conflict.
+#[derive(Clone, Debug)]
+pub struct FileInfo {
+    pub size: u64,
+    pub mtime: Option<i64>,
+}
+
 /// Events emitted by the engine for the shell to react to.
 ///
 /// Progress/transfer events are added in Epic 2; this covers session lifecycle
@@ -47,6 +54,13 @@ pub enum EngineEvent {
     },
     /// Batched progress for all running transfers (emitted at ≤10 Hz).
     TransferProgress { samples: Vec<ProgressSample> },
+    /// A transfer's destination already exists and needs a user decision.
+    TransferConflict {
+        id: TransferId,
+        dest: String,
+        existing: FileInfo,
+        incoming: FileInfo,
+    },
     /// The server presented a host key that needs a user decision (TOFU).
     ///
     /// `changed` distinguishes an unknown host (false) from a key that differs

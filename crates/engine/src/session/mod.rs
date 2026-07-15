@@ -216,6 +216,21 @@ impl Engine {
         self.queue.set_concurrency(n);
     }
 
+    /// Set the default conflict handling (`None` = prompt/Ask).
+    pub fn set_conflict_policy(&self, policy: Option<crate::transfer::ConflictResolution>) {
+        self.queue.set_conflict_policy(policy);
+    }
+
+    /// Resolve a pending destination-exists conflict.
+    pub fn resolve_conflict(
+        &self,
+        id: TransferId,
+        resolution: crate::transfer::ConflictResolution,
+        apply_to_all: bool,
+    ) {
+        self.queue.resolve_conflict(id, resolution, apply_to_all);
+    }
+
     /// Remove completed/failed/canceled transfers from the queue.
     pub fn clear_completed(&self) {
         self.queue.clear_completed();

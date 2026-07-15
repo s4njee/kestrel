@@ -13,6 +13,7 @@ import {
 import { sessions } from "$lib/stores/sessions.svelte";
 import { prompts } from "$lib/stores/prompts.svelte";
 import { transfers } from "$lib/stores/transfers.svelte";
+import { conflicts } from "$lib/stores/conflicts.svelte";
 
 /**
  * Dispatch a single session event into the stores.
@@ -50,6 +51,9 @@ export function routeTransferEvent(event: TransferEvent): void {
       break;
     case "progressBatch":
       transfers.setProgress(event.items);
+      break;
+    case "conflict":
+      conflicts.add(event);
       break;
   }
 }

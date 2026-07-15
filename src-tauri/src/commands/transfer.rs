@@ -1,6 +1,6 @@
 //! commands/transfer.rs — Transfer queue commands and the transfer-event bridge.
 
-use sftpapp_engine::Direction;
+use sftpapp_engine::{ConflictResolution, Direction};
 use tauri::ipc::Channel;
 use tauri::State;
 use uuid::Uuid;
@@ -84,6 +84,29 @@ pub async fn resume_transfer(state: State<'_, AppState>, transfer_id: String) ->
 #[tauri::command]
 pub async fn pause_all_transfers(state: State<'_, AppState>) -> CmdResult<()> {
     state.engine.pause_all_transfers();
+    Ok(())
+}
+
+/// Resolve a destination-exists conflict.
+///
+/// Arguments: `transfer_id`; `resolution` ("overwrite"/"skip"/"rename"/
+/// "resume"); `apply_to_all` — apply to the rest of the batch too.
+#[tauri::command]
+pub async fn resolve_conflict(
+    state: State<'_, AppState>,
+    transfer_id: String,
+    resolution: String,
+    apply_to_all: bool,
+) -> CmdResult<()> {
+    let id = Uuid::parse_str(&transfer_id).map_err(|e| e.to_string())?;
+    let resolution = match resolution.as_str() {
+        "overwrite" => ConflictResolution::Overwrite,
+        "skip" => ConflictResolution::Skip,
+        "rename" => ConflictResolution::Rename,
+        "resume" => ConflictResolution::Resume,
+        other => return Err(format!("unknown resolution: {other}")),
+    };
+    state.engine.resolve_conflict(id, resolution, apply_to_all);
     Ok(())
 }
 

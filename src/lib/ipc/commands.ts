@@ -55,7 +55,11 @@ export interface TransferRequest {
 }
 
 /** Transfer lifecycle state string. */
-export type TransferStateStr = "queued" | "running" | "paused" | "done" | "failed" | "canceled";
+export type TransferStateStr =
+  "queued" | "running" | "paused" | "awaitingUser" | "done" | "skipped" | "failed" | "canceled";
+
+/** How to resolve a destination-exists conflict. */
+export type ConflictResolution = "overwrite" | "skip" | "rename" | "resume";
 
 /** Transfer events pushed over the transfer channel (mirrors `TransferEventDto`). */
 export type TransferEvent =
@@ -69,6 +73,15 @@ export type TransferEvent =
       size: number;
       bytes: number;
       direction: TransferDirection;
+    }
+  | {
+      type: "conflict";
+      id: string;
+      dest: string;
+      existingSize: number;
+      existingMtime: number | null;
+      incomingSize: number;
+      incomingMtime: number | null;
     };
 
 /** Session/prompt events pushed over the channel (mirrors `SessionEventDto`). */
@@ -230,6 +243,21 @@ export function resumeTransfer(transferId: string): Promise<void> {
 /** Pause all active transfers. */
 export function pauseAllTransfers(): Promise<void> {
   return invoke("pause_all_transfers");
+}
+
+/**
+ * Resolve a destination-exists conflict.
+ *
+ * @param transferId - the conflicted transfer.
+ * @param resolution - overwrite/skip/rename/resume.
+ * @param applyToAll - apply this choice to the rest of the batch.
+ */
+export function resolveConflict(
+  transferId: string,
+  resolution: ConflictResolution,
+  applyToAll: boolean,
+): Promise<void> {
+  return invoke("resolve_conflict", { transferId, resolution, applyToAll });
 }
 
 /** Remove completed/failed/canceled transfers from the queue. */

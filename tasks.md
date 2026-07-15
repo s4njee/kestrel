@@ -159,7 +159,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 - [x] **E3-S5 — Recursive directory transfers + path safety** (L)
   - Do: `Enumerating` state: stream-expand directories into child file items (bounded queue — flat memory on 100k-file trees), mkdir on the fly, per-file conflict checks. Enforce the **download path safety** invariant (component validation + canonical-root assertion) in one reusable `sanitize` module with exhaustive tests (`../../etc/passwd`, `CON`, `a/b\c`, trailing dots, NUL).
   - Accept: 1000-file tree both directions on in-process server; adversarial-path unit tests all reject; symlinks skipped with log notice.
-- [ ] **E3-S6 — Conflict handling** (M)
+- [x] **E3-S6 — Conflict handling** (M)
   - Do: dest-exists + policy `Ask` → `AwaitingUser`, emit conflict event (both sides' size/mtime); `resolve_conflict(id, resolution, apply_to_all)` with `Overwrite|Skip|Rename|Resume`; batch-level sticky choice. `ConflictDialog.svelte` with apply-to-all checkbox.
   - Accept: engine tests per resolution incl. apply-to-all; dialog component test.
 - [ ] **E3-S7 — Queue persistence** (S)

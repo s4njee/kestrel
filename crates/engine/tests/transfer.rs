@@ -348,3 +348,164 @@ async fn recursive_download_transfers_tree_and_skips_symlinks() {
     );
     assert!(!dl.join("proj/link").exists(), "symlink must be skipped");
 }
+
+/// Drive an Ask-policy conflict by responding to conflict events with a fixed
+/// resolution. Returns once each id is terminal.
+async fn run_with_conflict_resolution(
+    engine: &Arc<Engine>,
+    events: &mut broadcast::Receiver<EngineEvent>,
+    ids: &[TransferId],
+    resolution: sftpapp_engine::ConflictResolution,
+    apply_to_all: bool,
+) {
+    let mut terminal = std::collections::HashSet::new();
+    while terminal.len() < ids.len() {
+        match events.recv().await {
+            Ok(EngineEvent::TransferConflict { id, .. }) if ids.contains(&id) => {
+                engine.resolve_conflict(id, resolution, apply_to_all);
+            }
+            Ok(EngineEvent::TransferStateChanged { id, state, .. })
+                if ids.contains(&id) && state.is_terminal() =>
+            {
+                terminal.insert(id);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn conflict_engine(dir: &tempfile::TempDir) -> Arc<Engine> {
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.spawn_transfer_workers();
+    engine.set_conflict_policy(None); // Ask
+    engine
+}
+
+#[tokio::test]
+async fn conflict_overwrite_replaces_existing() {
+    use sftpapp_engine::ConflictResolution;
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.bin"), b"NEWDATA").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = conflict_engine(&dir);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let dest = dir.path().join("out.bin");
+    std::fs::write(&dest, b"oldcontent").unwrap(); // pre-existing → conflict
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/f.bin".to_string(),
+        dest: dest.to_string_lossy().into_owned(),
+        size: 7,
+    }]);
+    run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Overwrite, false).await;
+    assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"NEWDATA");
+}
+
+#[tokio::test]
+async fn conflict_skip_leaves_existing() {
+    use sftpapp_engine::ConflictResolution;
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.bin"), b"NEWDATA").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = conflict_engine(&dir);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let dest = dir.path().join("out.bin");
+    std::fs::write(&dest, b"oldcontent").unwrap();
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/f.bin".to_string(),
+        dest: dest.to_string_lossy().into_owned(),
+        size: 7,
+    }]);
+    run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Skip, false).await;
+    assert_eq!(engine.transfer_item(ids[0]).unwrap().state(), TransferState::Skipped);
+    assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"oldcontent");
+}
+
+#[tokio::test]
+async fn conflict_rename_writes_new_name() {
+    use sftpapp_engine::ConflictResolution;
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.txt"), b"NEWDATA").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = conflict_engine(&dir);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let dest = dir.path().join("out.txt");
+    std::fs::write(&dest, b"oldcontent").unwrap();
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/f.txt".to_string(),
+        dest: dest.to_string_lossy().into_owned(),
+        size: 7,
+    }]);
+    run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Rename, false).await;
+    // Original untouched; new file " (1)" created with new content.
+    assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"oldcontent");
+    let renamed = dir.path().join("out (1).txt");
+    assert_eq!(tokio::fs::read(&renamed).await.unwrap(), b"NEWDATA");
+}
+
+#[tokio::test]
+async fn conflict_apply_to_all_covers_batch() {
+    use sftpapp_engine::ConflictResolution;
+    let server = support::start_password_server("u", "p").await;
+    for i in 0..3 {
+        std::fs::write(server.root().join(format!("f{i}.bin")), b"NEW").unwrap();
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let engine = conflict_engine(&dir);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let mut requests = Vec::new();
+    for i in 0..3 {
+        let dest = dir.path().join(format!("out{i}.bin"));
+        std::fs::write(&dest, b"old").unwrap();
+        requests.push(TransferRequest {
+            session_id: id,
+            direction: Direction::Download,
+            src: format!("/f{i}.bin"),
+            dest: dest.to_string_lossy().into_owned(),
+            size: 3,
+        });
+    }
+    let ids = engine.enqueue_transfers(requests);
+    // Respond Skip + apply_to_all to the FIRST conflict; the rest auto-skip.
+    let mut resolved_once = false;
+    let mut terminal = std::collections::HashSet::new();
+    while terminal.len() < ids.len() {
+        match events.recv().await {
+            Ok(EngineEvent::TransferConflict { id, .. }) if ids.contains(&id) && !resolved_once => {
+                engine.resolve_conflict(id, ConflictResolution::Skip, true);
+                resolved_once = true;
+            }
+            Ok(EngineEvent::TransferStateChanged { id, state, .. })
+                if ids.contains(&id) && state.is_terminal() =>
+            {
+                terminal.insert(id);
+            }
+            _ => {}
+        }
+    }
+    for i in 0..3 {
+        assert_eq!(
+            tokio::fs::read(dir.path().join(format!("out{i}.bin"))).await.unwrap(),
+            b"old"
+        );
+    }
+}

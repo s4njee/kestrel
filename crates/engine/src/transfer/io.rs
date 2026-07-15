@@ -46,6 +46,15 @@ impl CopyOptions {
         }
     }
 
+    /// Options to append directly to an existing destination from `offset`
+    /// (used by the Resume conflict resolution — no `.part`, no rename).
+    pub fn resume_existing(offset: u64) -> Self {
+        CopyOptions {
+            use_part: false,
+            resume_offset: offset,
+        }
+    }
+
     /// Set the resume offset.
     pub fn with_resume(mut self, offset: u64) -> Self {
         self.resume_offset = offset;

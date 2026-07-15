@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
-use tokio::sync::{broadcast, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{broadcast, oneshot, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -81,6 +81,19 @@ pub enum Direction {
     Download,
 }
 
+/// How to resolve a destination-exists conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictResolution {
+    /// Replace the destination.
+    Overwrite,
+    /// Skip this file, leaving the destination untouched.
+    Skip,
+    /// Write to a new, non-conflicting name.
+    Rename,
+    /// Append to the existing destination (continue an interrupted transfer).
+    Resume,
+}
+
 /// Lifecycle state of a transfer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferState {
@@ -88,7 +101,11 @@ pub enum TransferState {
     Running,
     /// Paused by the user; resumable from the current offset.
     Paused,
+    /// Waiting for the user to resolve a destination-exists conflict.
+    AwaitingUser,
     Done,
+    /// Skipped due to a conflict resolution.
+    Skipped,
     Failed,
     Canceled,
 }
@@ -98,7 +115,10 @@ impl TransferState {
     pub fn is_terminal(self) -> bool {
         matches!(
             self,
-            TransferState::Done | TransferState::Failed | TransferState::Canceled
+            TransferState::Done
+                | TransferState::Skipped
+                | TransferState::Failed
+                | TransferState::Canceled
         )
     }
 
@@ -128,12 +148,17 @@ pub struct TransferItem {
     pub session_id: SessionId,
     pub direction: Direction,
     pub src: String,
+    /// The originally-requested destination path.
     pub dest: String,
     pub size: u64,
+    /// The batch this item was enqueued with (for "apply to all").
+    pub batch_id: Uuid,
     /// Bytes copied so far (advanced by the copy loop).
     pub bytes_done: AtomicU64,
     /// Number of attempts made so far (1-based once running).
     pub attempts: AtomicU32,
+    /// Actual destination used (differs from `dest` after a Rename resolution).
+    effective_dest: Mutex<String>,
     /// True when the current stop was requested as a pause (resumable) rather
     /// than a cancel (terminal).
     pause_requested: AtomicBool,
@@ -146,6 +171,16 @@ impl TransferItem {
     /// Current state.
     pub fn state(&self) -> TransferState {
         *self.state.lock().unwrap()
+    }
+
+    /// The effective destination path (may differ from `dest` after a rename).
+    pub fn effective_dest(&self) -> String {
+        self.effective_dest.lock().unwrap().clone()
+    }
+
+    /// Set the effective destination (used by a Rename resolution).
+    pub(crate) fn set_effective_dest(&self, dest: String) {
+        *self.effective_dest.lock().unwrap() = dest;
     }
 
     /// A clone of the current run's cancellation token (shares state).
@@ -191,6 +226,12 @@ pub(crate) struct QueueShared {
     pub sessions: Arc<DashMap<SessionId, Arc<Session>>>,
     pub events: broadcast::Sender<EngineEvent>,
     pub concurrency: Concurrency,
+    /// Default conflict handling; `None` means prompt the user (Ask).
+    pub default_conflict: Mutex<Option<ConflictResolution>>,
+    /// Sticky "apply to all" resolution per enqueue batch.
+    pub batch_policy: DashMap<Uuid, ConflictResolution>,
+    /// Oneshot channels for conflicts awaiting a user decision.
+    pub conflicts: DashMap<TransferId, oneshot::Sender<ConflictResolution>>,
 }
 
 impl QueueShared {
@@ -202,6 +243,22 @@ impl QueueShared {
         let _ = self
             .events
             .send(EngineEvent::TransferStateChanged { id, state, error });
+    }
+
+    /// Emit a conflict event for a transfer awaiting a user decision.
+    pub(crate) fn emit_conflict(
+        &self,
+        id: TransferId,
+        dest: String,
+        existing: crate::events::FileInfo,
+        incoming: crate::events::FileInfo,
+    ) {
+        let _ = self.events.send(EngineEvent::TransferConflict {
+            id,
+            dest,
+            existing,
+            incoming,
+        });
     }
 }
 
@@ -227,6 +284,11 @@ impl TransferQueue {
                 sessions,
                 events,
                 concurrency: Concurrency::new(DEFAULT_CONCURRENCY),
+                // Default: silently overwrite (no prompts) unless the app opts
+                // into Ask via set_conflict_policy(None).
+                default_conflict: Mutex::new(Some(ConflictResolution::Overwrite)),
+                batch_policy: DashMap::new(),
+                conflicts: DashMap::new(),
             }),
         }
     }
@@ -239,8 +301,10 @@ impl TransferQueue {
         tokio::spawn(worker::run_aggregator(shared));
     }
 
-    /// Enqueue transfers, returning their new ids in request order.
+    /// Enqueue transfers, returning their new ids in request order. All items
+    /// share a batch id so an "apply to all" conflict choice can span them.
     pub fn enqueue(&self, requests: Vec<TransferRequest>) -> Vec<TransferId> {
+        let batch_id = Uuid::new_v4();
         let mut ids = Vec::with_capacity(requests.len());
         for req in requests {
             let id = Uuid::new_v4();
@@ -249,8 +313,10 @@ impl TransferQueue {
                 session_id: req.session_id,
                 direction: req.direction,
                 src: req.src,
+                effective_dest: Mutex::new(req.dest.clone()),
                 dest: req.dest,
                 size: req.size,
+                batch_id,
                 bytes_done: AtomicU64::new(0),
                 attempts: AtomicU32::new(0),
                 pause_requested: AtomicBool::new(false),
@@ -346,6 +412,52 @@ impl TransferQueue {
     /// Set the maximum number of concurrently-running transfers (applies live).
     pub fn set_concurrency(&self, n: usize) {
         self.shared.concurrency.set(n.max(1));
+    }
+
+    /// Set the default conflict handling: `Some(resolution)` to auto-apply, or
+    /// `None` to prompt the user (Ask) on each destination-exists conflict.
+    pub fn set_conflict_policy(&self, policy: Option<ConflictResolution>) {
+        *self.shared.default_conflict.lock().unwrap() = policy;
+    }
+
+    /// Answer a pending conflict prompt.
+    ///
+    /// Arguments: `id` — the conflicted transfer; `resolution` — the choice;
+    /// `apply_to_all` — apply this choice to the rest of the batch too.
+    pub fn resolve_conflict(
+        &self,
+        id: TransferId,
+        resolution: ConflictResolution,
+        apply_to_all: bool,
+    ) {
+        if apply_to_all {
+            if let Some(batch_id) = self.shared.items.get(&id).map(|e| e.batch_id) {
+                self.shared.batch_policy.insert(batch_id, resolution);
+                // Wake every pending conflict already awaiting in this batch.
+                let waiting: Vec<TransferId> = self
+                    .shared
+                    .conflicts
+                    .iter()
+                    .map(|e| *e.key())
+                    .filter(|cid| {
+                        self.shared
+                            .items
+                            .get(cid)
+                            .map(|it| it.batch_id == batch_id)
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                for cid in waiting {
+                    if let Some((_, tx)) = self.shared.conflicts.remove(&cid) {
+                        let _ = tx.send(resolution);
+                    }
+                }
+                return;
+            }
+        }
+        if let Some((_, tx)) = self.shared.conflicts.remove(&id) {
+            let _ = tx.send(resolution);
+        }
     }
 
     /// Remove all terminal (done/failed/canceled) items.

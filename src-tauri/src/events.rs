@@ -37,7 +37,9 @@ impl SessionEventDto {
     /// not belong on the session channel (transfer events go elsewhere).
     pub fn from_engine(event: EngineEvent) -> Option<SessionEventDto> {
         match event {
-            EngineEvent::TransferStateChanged { .. } | EngineEvent::TransferProgress { .. } => None,
+            EngineEvent::TransferStateChanged { .. }
+            | EngineEvent::TransferProgress { .. }
+            | EngineEvent::TransferConflict { .. } => None,
             EngineEvent::SessionConnected { session_id } => Some(SessionEventDto::ConnectionState {
                 session_id: session_id.to_string(),
                 state: "connected".to_string(),
@@ -77,7 +79,9 @@ fn state_str(state: TransferState) -> &'static str {
         TransferState::Queued => "queued",
         TransferState::Running => "running",
         TransferState::Paused => "paused",
+        TransferState::AwaitingUser => "awaitingUser",
         TransferState::Done => "done",
+        TransferState::Skipped => "skipped",
         TransferState::Failed => "failed",
         TransferState::Canceled => "canceled",
     }
@@ -115,7 +119,8 @@ pub enum TransferEventDto {
     #[serde(rename_all = "camelCase")]
     State {
         id: String,
-        /// "queued" | "running" | "paused" | "done" | "failed" | "canceled".
+        /// e.g. "queued" | "running" | "paused" | "awaitingUser" | "done" |
+        /// "skipped" | "failed" | "canceled".
         state: String,
         error: Option<String>,
         name: String,
@@ -123,6 +128,16 @@ pub enum TransferEventDto {
         bytes: u64,
         /// "upload" | "download".
         direction: String,
+    },
+    /// A transfer's destination already exists and needs a user decision.
+    #[serde(rename_all = "camelCase")]
+    Conflict {
+        id: String,
+        dest: String,
+        existing_size: u64,
+        existing_mtime: Option<i64>,
+        incoming_size: u64,
+        incoming_mtime: Option<i64>,
     },
 }
 
@@ -166,6 +181,19 @@ impl TransferEventDto {
                         rate_bps: s.rate_bps,
                     })
                     .collect(),
+            }),
+            EngineEvent::TransferConflict {
+                id,
+                dest,
+                existing,
+                incoming,
+            } => Some(TransferEventDto::Conflict {
+                id: id.to_string(),
+                dest,
+                existing_size: existing.size,
+                existing_mtime: existing.mtime,
+                incoming_size: incoming.size,
+                incoming_mtime: incoming.mtime,
             }),
             _ => None,
         }

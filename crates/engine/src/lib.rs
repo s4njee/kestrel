@@ -29,7 +29,7 @@ pub mod watcher;
 
 pub use auth::{AuthMethod, ConnectParams, Secret};
 pub use error::{EngineError, ErrorClass, Result};
-pub use events::{EngineEvent, ProgressSample, PromptReply, Prompts, SessionId};
+pub use events::{EngineEvent, FileInfo, ProgressSample, PromptReply, Prompts, SessionId};
 pub use fs::local::LocalFs;
 pub use fs::sftp::SftpFs;
 pub use fs::{DirEntry, EntryKind, FsCapabilities, Metadata, RemoteFs, WriteMode};
@@ -37,4 +37,6 @@ pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
 pub use pathsafe::{safe_component, safe_join};
 pub use session::{Engine, Session};
 pub use transfer::io::{copy_file, CopyOptions};
-pub use transfer::{Direction, TransferId, TransferItem, TransferRequest, TransferState};
+pub use transfer::{
+    ConflictResolution, Direction, TransferId, TransferItem, TransferRequest, TransferState,
+};

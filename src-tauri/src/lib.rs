@@ -77,6 +77,7 @@ pub fn run() {
             commands::transfer::pause_transfer,
             commands::transfer::resume_transfer,
             commands::transfer::pause_all_transfers,
+            commands::transfer::resolve_conflict,
             commands::transfer::clear_completed,
             commands::transfer::set_concurrency,
             commands::transfer::subscribe_transfer_events,

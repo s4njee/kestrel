@@ -11,25 +11,154 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::oneshot;
+
 use crate::error::EngineError;
-use crate::events::{EngineEvent, ProgressSample};
+use crate::events::{EngineEvent, FileInfo, ProgressSample};
 use crate::fs::local::LocalFs;
 use crate::fs::sftp::SftpFs;
 use crate::fs::RemoteFs;
+use crate::session::Session;
 use crate::transfer::io::{copy_file, CopyOptions};
 use crate::transfer::retry::{retry, RetryPolicy};
-use crate::transfer::{Direction, QueueShared, TransferId, TransferItem, TransferState};
+use crate::transfer::{
+    ConflictResolution, Direction, QueueShared, TransferId, TransferItem, TransferState,
+};
 
 /// Byte offset to resume a transfer from, based on what is already present at
 /// the destination (a `.part` file for downloads, the remote file for uploads).
 /// Makes every attempt — retry or user resume — continue where it left off.
 async fn resume_offset(item: &TransferItem, remote: &SftpFs) -> u64 {
+    let dest = item.effective_dest();
     match item.direction {
-        Direction::Download => tokio::fs::metadata(format!("{}.part", item.dest))
+        Direction::Download => tokio::fs::metadata(format!("{dest}.part"))
             .await
             .map(|m| m.len())
             .unwrap_or(0),
-        Direction::Upload => remote.stat(&item.dest).await.map(|m| m.size).unwrap_or(0),
+        Direction::Upload => remote.stat(&dest).await.map(|m| m.size).unwrap_or(0),
+    }
+}
+
+/// Local metadata's mtime as Unix epoch seconds, if available.
+fn local_mtime(meta: &std::fs::Metadata) -> Option<i64> {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+}
+
+/// Info about a path on the transfer's destination side, or `None` if absent.
+async fn dest_info(direction: Direction, path: &str, session: &Session) -> Option<FileInfo> {
+    match direction {
+        Direction::Download => tokio::fs::metadata(path).await.ok().map(|m| FileInfo {
+            size: m.len(),
+            mtime: local_mtime(&m),
+        }),
+        Direction::Upload => session.remote_fs().stat(path).await.ok().map(|m| FileInfo {
+            size: m.size,
+            mtime: m.mtime,
+        }),
+    }
+}
+
+/// Info about the transfer's source file (best-effort; zeros on error).
+async fn src_info(item: &TransferItem, session: &Session) -> FileInfo {
+    match item.direction {
+        Direction::Download => session
+            .remote_fs()
+            .stat(&item.src)
+            .await
+            .map(|m| FileInfo {
+                size: m.size,
+                mtime: m.mtime,
+            })
+            .unwrap_or(FileInfo { size: 0, mtime: None }),
+        Direction::Upload => tokio::fs::metadata(&item.src)
+            .await
+            .map(|m| FileInfo {
+                size: m.len(),
+                mtime: local_mtime(&m),
+            })
+            .unwrap_or(FileInfo { size: 0, mtime: None }),
+    }
+}
+
+/// Size of the existing destination file (0 if absent).
+async fn existing_dest_size(item: &TransferItem, session: &Session) -> u64 {
+    dest_info(item.direction, &item.dest, session)
+        .await
+        .map(|i| i.size)
+        .unwrap_or(0)
+}
+
+/// Split a path into (stem, extension); extension keeps its leading dot.
+fn split_ext(path: &str) -> (String, String) {
+    let base = path.rfind(['/', '\\']).map(|i| i + 1).unwrap_or(0);
+    let name = &path[base..];
+    match name.rfind('.') {
+        Some(dot) if dot > 0 => (path[..base + dot].to_string(), name[dot..].to_string()),
+        _ => (path.to_string(), String::new()),
+    }
+}
+
+/// Find a non-conflicting destination name by inserting " (n)".
+async fn unique_dest(item: &TransferItem, session: &Session) -> String {
+    if dest_info(item.direction, &item.dest, session).await.is_none() {
+        return item.dest.clone();
+    }
+    let (stem, ext) = split_ext(&item.dest);
+    for n in 1..10_000 {
+        let candidate = format!("{stem} ({n}){ext}");
+        if dest_info(item.direction, &candidate, session).await.is_none() {
+            return candidate;
+        }
+    }
+    format!("{stem} ({}){ext}", uuid::Uuid::new_v4())
+}
+
+/// Determine how to resolve a destination-exists conflict for `item`.
+///
+/// Returns `Some(resolution)` to proceed (Overwrite/Rename/Resume), or `None`
+/// to Skip. Prompts the user (AwaitingUser + conflict event) when the policy is
+/// Ask and no batch-wide choice applies.
+async fn resolve_conflict(
+    shared: &QueueShared,
+    item: &TransferItem,
+    session: &Session,
+) -> Option<ConflictResolution> {
+    let Some(existing) = dest_info(item.direction, &item.dest, session).await else {
+        // No conflict.
+        return Some(ConflictResolution::Overwrite);
+    };
+
+    let resolution = if let Some(sticky) = shared.batch_policy.get(&item.batch_id).map(|e| *e) {
+        sticky
+    } else {
+        let policy = *shared.default_conflict.lock().unwrap();
+        match policy {
+            Some(r) => r,
+            None => {
+                shared.emit_state(item.id, TransferState::AwaitingUser, None);
+                let incoming = src_info(item, session).await;
+                let (tx, rx) = oneshot::channel();
+                shared.conflicts.insert(item.id, tx);
+                // Re-check after registering: an "apply to all" for this batch
+                // may have landed while we were setting up, in which case use it
+                // (this closes the check-then-await race).
+                if let Some(sticky) = shared.batch_policy.get(&item.batch_id).map(|e| *e) {
+                    shared.conflicts.remove(&item.id);
+                    sticky
+                } else {
+                    shared.emit_conflict(item.id, item.dest.clone(), existing, incoming);
+                    rx.await.unwrap_or(ConflictResolution::Skip)
+                }
+            }
+        }
+    };
+
+    match resolution {
+        ConflictResolution::Skip => None,
+        other => Some(other),
     }
 }
 
@@ -89,6 +218,26 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
         return;
     };
 
+    // Resolve any destination-exists conflict before transferring.
+    let resolution = match resolve_conflict(&shared, &item, &session).await {
+        Some(r) => r,
+        None => {
+            // Skip: leave the destination as-is.
+            shared.emit_state(id, TransferState::Skipped, None);
+            return;
+        }
+    };
+    let resume_existing = match resolution {
+        ConflictResolution::Resume => {
+            Some(existing_dest_size(&item, &session).await)
+        }
+        ConflictResolution::Rename => {
+            item.set_effective_dest(unique_dest(&item, &session).await);
+            None
+        }
+        _ => None,
+    };
+
     let policy = RetryPolicy::default();
     let outer_token = item.token();
     let outcome = retry(&policy, &outer_token, |attempt| {
@@ -105,33 +254,26 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
             let remote = channel.fs();
             let local = LocalFs::new();
             let token = item.token();
-            // Resume from whatever is already at the destination (a prior
-            // partial attempt or a paused .part).
-            let start = resume_offset(&item, &remote).await;
+            let dest = item.effective_dest();
+            // For a Resume resolution, append directly to the existing file;
+            // otherwise resume from any partial `.part`/remote bytes.
+            let opts = match resume_existing {
+                Some(offset) => CopyOptions::resume_existing(offset),
+                None => match item.direction {
+                    Direction::Download => {
+                        CopyOptions::download().with_resume(resume_offset(&item, &remote).await)
+                    }
+                    Direction::Upload => {
+                        CopyOptions::upload().with_resume(resume_offset(&item, &remote).await)
+                    }
+                },
+            };
             match item.direction {
                 Direction::Download => {
-                    copy_file(
-                        &remote,
-                        &item.src,
-                        &local,
-                        &item.dest,
-                        CopyOptions::download().with_resume(start),
-                        &item.bytes_done,
-                        &token,
-                    )
-                    .await
+                    copy_file(&remote, &item.src, &local, &dest, opts, &item.bytes_done, &token).await
                 }
                 Direction::Upload => {
-                    copy_file(
-                        &local,
-                        &item.src,
-                        &remote,
-                        &item.dest,
-                        CopyOptions::upload().with_resume(start),
-                        &item.bytes_done,
-                        &token,
-                    )
-                    .await
+                    copy_file(&local, &item.src, &remote, &dest, opts, &item.bytes_done, &token).await
                 }
             }
         }
@@ -224,6 +366,9 @@ mod tests {
             sessions: Arc::new(dashmap::DashMap::new()),
             events: tx,
             concurrency: crate::transfer::Concurrency::new(4),
+            default_conflict: Mutex::new(Some(ConflictResolution::Overwrite)),
+            batch_policy: dashmap::DashMap::new(),
+            conflicts: dashmap::DashMap::new(),
         });
 
         let id = Uuid::new_v4();
@@ -233,7 +378,9 @@ mod tests {
             direction: Direction::Download,
             src: String::new(),
             dest: String::new(),
+            effective_dest: Mutex::new(String::new()),
             size: 100_000,
+            batch_id: Uuid::new_v4(),
             bytes_done: AtomicU64::new(0),
             attempts: std::sync::atomic::AtomicU32::new(0),
             pause_requested: std::sync::atomic::AtomicBool::new(false),

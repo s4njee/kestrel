@@ -33,6 +33,7 @@
   import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
   import HostKeyDialog from "$lib/components/dialogs/HostKeyDialog.svelte";
+  import ConflictDialog from "$lib/components/dialogs/ConflictDialog.svelte";
 
   let showConnect = $state(false);
 
@@ -206,6 +207,7 @@
   <ConnectDialog {onConnected} onClose={() => (showConnect = false)} />
 {/if}
 <HostKeyDialog />
+<ConflictDialog />
 
 <style>
   .app {
