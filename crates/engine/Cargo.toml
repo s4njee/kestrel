@@ -1,0 +1,17 @@
+# Cargo.toml — sftpapp-engine: protocol-agnostic transfer & session core.
+#
+# MUST NOT depend on tauri (IPC/DTO types live in src-tauri). Dependencies are
+# added story-by-story as modules are implemented; today only `thiserror` is
+# needed for the error taxonomy (E0-S2 / E1-S1). Versions come from the
+# workspace root's [workspace.dependencies].
+
+[package]
+name = "sftpapp-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Protocol-agnostic file-transfer and SSH/SFTP session engine for sftpapp"
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]

@@ -3,6 +3,8 @@ node_modules
 /build
 /.svelte-kit
 /package
+# Rust workspace build output (target dir now lives at the workspace root)
+/target
 .env
 .env.*
 !.env.example

@@ -59,7 +59,7 @@ Goal: a running empty shell on all 3 OSes + workspace + CI. No SSH yet.
 - [x] **E0-S1 — Scaffold the Tauri + SvelteKit app** (S)
   - Do: in the repo root run `pnpm create tauri-app@latest . --template svelte-ts --manager pnpm --identifier io.sanjee.sftpapp --yes` (dir is empty apart from this file — move `tasks.md` out and back, or pass through any "dir not empty" prompt). Then `pnpm install`. `git init` if not a repo. Confirm SvelteKit is configured with `adapter-static` and `ssr = false` (single route) — the template does this; fix if not.
   - Accept: `pnpm tauri dev` opens a window on macOS; `pnpm build` succeeds; repo has `.gitignore` covering `node_modules`, `target`, `build`/`.svelte-kit`.
-- [ ] **E0-S2 — Cargo workspace + engine crate** (S)
+- [x] **E0-S2 — Cargo workspace + engine crate** (S)
   - Do: `cargo new crates/engine --lib --name sftpapp-engine`. Root `Cargo.toml`: `[workspace] members = ["src-tauri", "crates/engine"]`, `resolver = "2"`, shared `[workspace.dependencies]` for the Rust deps table above (exact-pin russh = "=0.62.2", russh-sftp = "=2.3.0"). Make `src-tauri` consume `sftpapp-engine` via workspace path dep. Engine gets module stubs per Appendix A tree with `todo!()`-free placeholder types and one real unit test (e.g. error classify).
   - Accept: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass; `pnpm tauri dev` still launches.
 - [ ] **E0-S3 — Frontend tooling** (S)

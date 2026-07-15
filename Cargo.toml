@@ -1,0 +1,43 @@
+# Cargo.toml — Workspace root for the sftpapp Rust code.
+#
+# Two members:
+#   - crates/engine : sftpapp-engine, the protocol-agnostic transfer/session
+#                     core. It has NO dependency on Tauri and is tested headless
+#                     (`cargo test -p sftpapp-engine`).
+#   - src-tauri     : the thin Tauri shell (commands, DTOs, event bridge) that
+#                     depends on the engine.
+#
+# [workspace.dependencies] centralizes version pins so both members agree. A
+# version listed here is only fetched/compiled when a member opts in via
+# `{ workspace = true }`, so declaring the full set up front is free until used.
+# russh / russh-sftp are exact-pinned because 0.x releases carry breaking API
+# churn (see tasks.md Appendix C risk register).
+
+[workspace]
+members = ["src-tauri", "crates/engine"]
+resolver = "2"
+
+[workspace.dependencies]
+# Async runtime and utilities
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "fs", "sync", "time", "net"] }
+tokio-util = { version = "0.7", features = ["io"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Errors, logging, misc
+thiserror = "2"
+tracing = "0.1"
+zeroize = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+dashmap = "6"
+
+# SSH / SFTP (exact-pinned — see note above)
+russh = "=0.62.2"
+russh-sftp = "=2.3.0"
+
+# Credentials and filesystem watching
+keyring = "4"
+notify = "8"
