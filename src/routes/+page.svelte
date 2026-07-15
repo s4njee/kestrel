@@ -3,16 +3,23 @@
 
   Composes the toolbar, the resizable split of the local and remote panes, the
   transfer dock, and the status bar, and mounts the connect + host-key dialogs.
-  Session events are initialized once on mount. The local pane still shows mock
-  data and the remote pane is a placeholder until real browsing lands in E1-S10.
+  Drives real browsing: the local pane loads from the home directory on mount;
+  the remote pane loads "/" on connect. Cmd/Ctrl+R refreshes the active pane and
+  Cmd/Ctrl+L focuses its path field.
 -->
 <script lang="ts">
   import { onMount } from "svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { sessions } from "$lib/stores/sessions.svelte";
+  import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents } from "$lib/ipc/events";
-  import { disconnect as disconnectCmd, type SessionInfo } from "$lib/ipc/commands";
-  import type { FileEntry } from "$lib/types";
+  import {
+    disconnect as disconnectCmd,
+    localHomeDir,
+    localListDir,
+    listDir,
+    type SessionInfo,
+  } from "$lib/ipc/commands";
   import Toolbar from "$lib/components/layout/Toolbar.svelte";
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
@@ -20,13 +27,6 @@
   import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
   import HostKeyDialog from "$lib/components/dialogs/HostKeyDialog.svelte";
-
-  // Mock local entries so the shell has something to render before E1-S10.
-  const localEntries: FileEntry[] = [
-    { name: "Documents", kind: "dir", size: 0, mtime: 1_720_000_000, permissions: 0o755 },
-    { name: "Downloads", kind: "dir", size: 0, mtime: 1_721_000_000, permissions: 0o755 },
-    { name: "notes.txt", kind: "file", size: 2048, mtime: 1_721_500_000, permissions: 0o644 },
-  ];
 
   let showConnect = $state(false);
 
@@ -36,11 +36,35 @@
     active ? `${active.info.username}@${active.info.host}` : "Not connected",
   );
 
+  /** Load a local directory into the local pane. */
+  async function loadLocal(path: string): Promise<void> {
+    localPane.startLoad(path);
+    try {
+      localPane.setEntries(await localListDir(path));
+    } catch (e) {
+      localPane.setError(String(e));
+    }
+  }
+
+  /** Load a remote directory into the remote pane (needs an active session). */
+  async function loadRemote(path: string): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id) return;
+    remotePane.startLoad(path);
+    try {
+      remotePane.setEntries(await listDir(id, path));
+    } catch (e) {
+      remotePane.setError(String(e));
+    }
+  }
+
   onMount(() => {
-    // Guard: in a plain browser (dev preview without the Tauri runtime) the
-    // channel setup throws; swallow it so the UI still renders.
+    // Guard: browser dev preview has no Tauri runtime.
     try {
       void initSessionEvents();
+      localHomeDir()
+        .then(loadLocal)
+        .catch(() => {});
     } catch {
       /* no Tauri runtime */
     }
@@ -51,17 +75,41 @@
     if (active) {
       const id = active.info.id;
       sessions.remove(id);
+      remotePane.reset();
       await disconnectCmd(id);
     } else {
       showConnect = true;
     }
   }
 
-  /** Track a newly connected session. */
+  /** Track a newly connected session and load its root. */
   function onConnected(info: SessionInfo): void {
     sessions.add(info);
+    void loadRemote("/");
+    ui.setActivePane("remote");
+  }
+
+  /** Refresh the active pane. */
+  function refreshActive(): void {
+    if (ui.activePane === "local") void loadLocal(localPane.path);
+    else if (remotePane.path) void loadRemote(remotePane.path);
+  }
+
+  /** Global keyboard shortcuts. */
+  function onGlobalKey(event: KeyboardEvent): void {
+    const meta = event.metaKey || event.ctrlKey;
+    if (!meta) return;
+    if (event.key === "r") {
+      event.preventDefault();
+      refreshActive();
+    } else if (event.key === "l") {
+      event.preventDefault();
+      document.getElementById(`path-input-${ui.activePane}`)?.focus();
+    }
   }
 </script>
+
+<svelte:window onkeydown={onGlobalKey} />
 
 <div class="app">
   <Toolbar {connected} {onConnect} />
@@ -70,23 +118,21 @@
     <SplitPane ratio={ui.splitRatio} onRatioChange={(r) => (ui.splitRatio = r)}>
       {#snippet left()}
         <FilePane
-          kind="local"
-          title="Local — ~/"
-          entries={localEntries}
+          pane={localPane}
           active={ui.activePane === "local"}
           onActivate={() => ui.setActivePane("local")}
+          onNavigate={loadLocal}
         />
       {/snippet}
       {#snippet right()}
         <FilePane
-          kind="remote"
-          title={active ? `Remote — ${active.info.host}` : "Remote — Not connected"}
-          entries={[]}
+          pane={remotePane}
           active={ui.activePane === "remote"}
-          emptyMessage={active
-            ? "Browsing arrives in the next step."
+          emptyMessage={connected
+            ? "Empty directory."
             : "Not connected. Use Connect… to open a session."}
           onActivate={() => ui.setActivePane("remote")}
+          onNavigate={loadRemote}
         />
       {/snippet}
     </SplitPane>
