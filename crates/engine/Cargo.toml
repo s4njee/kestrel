@@ -11,6 +11,12 @@ version = "0.1.0"
 edition = "2021"
 description = "Protocol-agnostic file-transfer and SSH/SFTP session engine for sftpapp"
 
+[features]
+# Opt-in integration tests that hit a real OpenSSH/SFTP server (atmoz/sftp).
+# Off by default so `cargo test` needs no Docker; enable with
+# `--features docker-tests` and set SFTP_TEST_HOST (see tests/docker.rs).
+docker-tests = []
+
 [dependencies]
 thiserror = { workspace = true }
 async-trait = { workspace = true }

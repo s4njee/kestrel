@@ -1,0 +1,63 @@
+# docker-tests.yml — Nightly SFTP fidelity tests against a real OpenSSH server.
+#
+# The engine's `docker-tests` feature (crates/engine/tests/docker.rs) exercises
+# behaviors the in-process test server can't fully vouch for — real permission
+# semantics, non-ASCII filenames, key auth, and a 100 MB transfer — against an
+# `atmoz/sftp` container. These are too slow/heavy for every PR, so they run on a
+# nightly schedule (and on demand via workflow_dispatch) on Linux only.
+
+name: Docker fidelity tests
+
+on:
+  schedule:
+    # 05:00 UTC nightly.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-tests:
+    name: SFTP fidelity (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+
+    services:
+      sftp:
+        image: atmoz/sftp:alpine
+        # user:pass:uid:gid:writable-dir → password auth as `user`, /upload writable.
+        env:
+          SFTP_USERS: "user:pass:::upload"
+        ports:
+          - 2222:22
+
+    env:
+      SFTP_TEST_HOST: 127.0.0.1
+      SFTP_TEST_PORT: 2222
+      SFTP_TEST_USER: user
+      SFTP_TEST_PASS: pass
+      SFTP_TEST_DIR: /upload
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Wait for the SFTP server
+        run: |
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 2222; then echo "SFTP is up"; exit 0; fi
+            echo "waiting for SFTP ($i)..."; sleep 2
+          done
+          echo "SFTP server did not become ready" >&2
+          exit 1
+
+      - name: Run fidelity tests
+        run: cargo test -p sftpapp-engine --features docker-tests --test docker -- --nocapture
