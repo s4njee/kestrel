@@ -36,6 +36,29 @@ pub async fn cancel_transfer(state: State<'_, AppState>, transfer_id: String) ->
     Ok(())
 }
 
+/// Pause a transfer (resumable from its current offset).
+#[tauri::command]
+pub async fn pause_transfer(state: State<'_, AppState>, transfer_id: String) -> CmdResult<()> {
+    let id = Uuid::parse_str(&transfer_id).map_err(|e| e.to_string())?;
+    state.engine.pause_transfer(id);
+    Ok(())
+}
+
+/// Resume a paused transfer.
+#[tauri::command]
+pub async fn resume_transfer(state: State<'_, AppState>, transfer_id: String) -> CmdResult<()> {
+    let id = Uuid::parse_str(&transfer_id).map_err(|e| e.to_string())?;
+    state.engine.resume_transfer(id);
+    Ok(())
+}
+
+/// Pause all active transfers.
+#[tauri::command]
+pub async fn pause_all_transfers(state: State<'_, AppState>) -> CmdResult<()> {
+    state.engine.pause_all_transfers();
+    Ok(())
+}
+
 /// Remove completed/failed/canceled transfers from the queue.
 #[tauri::command]
 pub async fn clear_completed(state: State<'_, AppState>) -> CmdResult<()> {

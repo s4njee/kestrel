@@ -5,10 +5,10 @@ and `crates/engine/examples/bench_download.rs`.
 
 ## Result — 2026-07-14 (localhost)
 
-| Path | Size | Time | Throughput |
-| --- | --- | --- | --- |
-| Engine download (russh-sftp) | 256 MB | 3.04 s | **84.3 MB/s** |
-| `sftp` CLI | — | — | not measured (`sshpass` not installed) |
+| Path                         | Size   | Time   | Throughput                             |
+| ---------------------------- | ------ | ------ | -------------------------------------- |
+| Engine download (russh-sftp) | 256 MB | 3.04 s | **84.3 MB/s**                          |
+| `sftp` CLI                   | —      | —      | not measured (`sshpass` not installed) |
 
 Environment: macOS (arm64), `atmoz/sftp` container running under amd64 emulation
 on Docker Desktop, loopback network (~0 ms RTT).

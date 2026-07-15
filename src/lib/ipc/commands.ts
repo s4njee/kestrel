@@ -55,7 +55,7 @@ export interface TransferRequest {
 }
 
 /** Transfer lifecycle state string. */
-export type TransferStateStr = "queued" | "running" | "done" | "failed" | "canceled";
+export type TransferStateStr = "queued" | "running" | "paused" | "done" | "failed" | "canceled";
 
 /** Transfer events pushed over the transfer channel (mirrors `TransferEventDto`). */
 export type TransferEvent =
@@ -180,6 +180,29 @@ export function enqueueTransfers(requests: TransferRequest[]): Promise<string[]>
  */
 export function cancelTransfer(transferId: string): Promise<void> {
   return invoke("cancel_transfer", { transferId });
+}
+
+/**
+ * Pause a transfer (resumable from its current offset).
+ *
+ * @param transferId - the transfer to pause.
+ */
+export function pauseTransfer(transferId: string): Promise<void> {
+  return invoke("pause_transfer", { transferId });
+}
+
+/**
+ * Resume a paused transfer.
+ *
+ * @param transferId - the transfer to resume.
+ */
+export function resumeTransfer(transferId: string): Promise<void> {
+  return invoke("resume_transfer", { transferId });
+}
+
+/** Pause all active transfers. */
+export function pauseAllTransfers(): Promise<void> {
+  return invoke("pause_all_transfers");
 }
 
 /** Remove completed/failed/canceled transfers from the queue. */

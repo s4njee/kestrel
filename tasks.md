@@ -153,7 +153,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 - [x] **E3-S3 — Retry policy + error classification wiring** (S)
   - Do: `transfer/retry.rs`: exponential backoff 1s→32s + jitter, max 5 attempts, Transient only; Fatal → `Failed` immediately. `attempts` on item; state events on each retry.
   - Accept: `tokio::time::pause` tests for backoff sequence and fatal short-circuit.
-- [ ] **E3-S4 — Pause / resume with offsets** (M)
+- [x] **E3-S4 — Pause / resume with offsets** (M)
   - Do: pause = cancel in-flight attempt, keep `Paused` + offset (`.part` len for downloads; remote stat size for uploads); resume re-enqueues with `WriteMode::Resume{offset}` / `open_read(offset)`. UI: pause/resume buttons per row + pause-all.
   - Accept: integration: pause mid-file, resume, hash matches; kill server mid-transfer → item goes Transient-retry, reconnect resumes from offset.
 - [ ] **E3-S5 — Recursive directory transfers + path safety** (L)

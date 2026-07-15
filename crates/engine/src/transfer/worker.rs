@@ -14,9 +14,24 @@ use std::time::Duration;
 use crate::error::EngineError;
 use crate::events::{EngineEvent, ProgressSample};
 use crate::fs::local::LocalFs;
+use crate::fs::sftp::SftpFs;
+use crate::fs::RemoteFs;
 use crate::transfer::io::{copy_file, CopyOptions};
 use crate::transfer::retry::{retry, RetryPolicy};
-use crate::transfer::{Direction, QueueShared, TransferId, TransferState};
+use crate::transfer::{Direction, QueueShared, TransferId, TransferItem, TransferState};
+
+/// Byte offset to resume a transfer from, based on what is already present at
+/// the destination (a `.part` file for downloads, the remote file for uploads).
+/// Makes every attempt — retry or user resume — continue where it left off.
+async fn resume_offset(item: &TransferItem, remote: &SftpFs) -> u64 {
+    match item.direction {
+        Direction::Download => tokio::fs::metadata(format!("{}.part", item.dest))
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0),
+        Direction::Upload => remote.stat(&item.dest).await.map(|m| m.size).unwrap_or(0),
+    }
+}
 
 /// Progress sampling period (10 Hz).
 const SAMPLE_PERIOD: Duration = Duration::from_millis(100);
@@ -75,19 +90,24 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
     };
 
     let policy = RetryPolicy::default();
-    let outcome = retry(&policy, &item.cancel, |attempt| {
+    let outer_token = item.token();
+    let outcome = retry(&policy, &outer_token, |attempt| {
         let shared = shared.clone();
         let item = item.clone();
         let session = session.clone();
         async move {
             item.attempts.store(attempt, Ordering::Relaxed);
             if attempt > 1 {
-                // Re-emit Running to signal a fresh attempt (progress restarts).
+                // Re-emit Running to signal a fresh attempt.
                 shared.emit_state(item.id, TransferState::Running, None);
             }
             let channel = session.checkout_transfer_channel().await?;
             let remote = channel.fs();
             let local = LocalFs::new();
+            let token = item.token();
+            // Resume from whatever is already at the destination (a prior
+            // partial attempt or a paused .part).
+            let start = resume_offset(&item, &remote).await;
             match item.direction {
                 Direction::Download => {
                     copy_file(
@@ -95,9 +115,9 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
                         &item.src,
                         &local,
                         &item.dest,
-                        CopyOptions::download(),
+                        CopyOptions::download().with_resume(start),
                         &item.bytes_done,
-                        &item.cancel,
+                        &token,
                     )
                     .await
                 }
@@ -107,9 +127,9 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
                         &item.src,
                         &remote,
                         &item.dest,
-                        CopyOptions::upload(),
+                        CopyOptions::upload().with_resume(start),
                         &item.bytes_done,
-                        &item.cancel,
+                        &token,
                     )
                     .await
                 }
@@ -120,6 +140,10 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
 
     match outcome {
         Ok(()) => shared.emit_state(id, TransferState::Done, None),
+        Err(EngineError::Canceled) if item.is_pause_requested() => {
+            // Paused, not canceled: keep the partial for resume.
+            shared.emit_state(id, TransferState::Paused, None);
+        }
         Err(EngineError::Canceled) => shared.emit_state(id, TransferState::Canceled, None),
         Err(e) => shared.emit_state(id, TransferState::Failed, Some(e.to_string())),
     }
@@ -212,7 +236,8 @@ mod tests {
             size: 100_000,
             bytes_done: AtomicU64::new(0),
             attempts: std::sync::atomic::AtomicU32::new(0),
-            cancel: CancellationToken::new(),
+            pause_requested: std::sync::atomic::AtomicBool::new(false),
+            cancel: Mutex::new(CancellationToken::new()),
             state: Mutex::new(TransferState::Running),
         });
         shared.items.insert(id, item.clone());

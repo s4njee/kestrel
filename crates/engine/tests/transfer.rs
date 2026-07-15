@@ -235,3 +235,63 @@ async fn multiple_concurrent_transfers_all_complete() {
         assert_eq!(tokio::fs::read(&out).await.unwrap(), vec![i as u8; 50_000]);
     }
 }
+
+#[tokio::test]
+async fn pause_and_resume_state_transitions() {
+    // No workers spawned: the item stays Queued so transitions are deterministic.
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.bin"), vec![0u8; 1000]).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    let id = connect(&engine, server.port).await;
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/f.bin".to_string(),
+        dest: dir.path().join("out.bin").to_string_lossy().into_owned(),
+        size: 1000,
+    }]);
+    assert_eq!(engine.transfer_item(ids[0]).unwrap().state(), TransferState::Queued);
+
+    engine.pause_transfer(ids[0]);
+    assert_eq!(engine.transfer_item(ids[0]).unwrap().state(), TransferState::Paused);
+
+    engine.resume_transfer(ids[0]);
+    assert_eq!(engine.transfer_item(ids[0]).unwrap().state(), TransferState::Queued);
+}
+
+#[tokio::test]
+async fn resume_continues_from_existing_part() {
+    let server = support::start_password_server("u", "p").await;
+    let content: Vec<u8> = (0..200_000u32).map(|i| (i * 3) as u8).collect();
+    std::fs::write(server.root().join("full.bin"), &content).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    // Pre-seed a partial download (first half) so the transfer must resume.
+    let dest = dir.path().join("out.bin");
+    std::fs::write(format!("{}.part", dest.to_string_lossy()), &content[..100_000]).unwrap();
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/full.bin".to_string(),
+        dest: dest.to_string_lossy().into_owned(),
+        size: 200_000,
+    }]);
+
+    let state = await_terminal(&mut events, ids[0]).await;
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(tokio::fs::read(&dest).await.unwrap(), content);
+}

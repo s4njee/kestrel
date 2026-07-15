@@ -34,9 +34,14 @@ class TransfersStore {
     return this.#list;
   }
 
-  /** Number of transfers that are queued or running. */
+  /** Whether a state is active (not finished). */
+  static isActive(state: TransferStateStr): boolean {
+    return state === "queued" || state === "running" || state === "paused";
+  }
+
+  /** Number of active (queued/running/paused) transfers. */
   get activeCount(): number {
-    return this.#list.filter((t) => t.state === "queued" || t.state === "running").length;
+    return this.#list.filter((t) => TransfersStore.isActive(t.state)).length;
   }
 
   /**
@@ -85,9 +90,9 @@ class TransfersStore {
     });
   }
 
-  /** Remove completed/failed/canceled transfers. */
+  /** Remove completed/failed/canceled transfers (keeps active + paused). */
   clearCompleted(): void {
-    this.#list = this.#list.filter((t) => t.state === "queued" || t.state === "running");
+    this.#list = this.#list.filter((t) => TransfersStore.isActive(t.state));
   }
 }
 

@@ -15,11 +15,17 @@
   interface Props {
     transfer: Transfer;
     onCancel: (id: string) => void;
+    onPause?: (id: string) => void;
+    onResume?: (id: string) => void;
   }
 
-  let { transfer, onCancel }: Props = $props();
+  let { transfer, onCancel, onPause, onResume }: Props = $props();
 
-  let active = $derived(transfer.state === "queued" || transfer.state === "running");
+  let active = $derived(
+    transfer.state === "queued" || transfer.state === "running" || transfer.state === "paused",
+  );
+  let canPause = $derived(transfer.state === "queued" || transfer.state === "running");
+  let paused = $derived(transfer.state === "paused");
   let percent = $derived(
     transfer.size > 0 ? Math.min(100, (transfer.bytes / transfer.size) * 100) : 0,
   );
@@ -38,6 +44,8 @@
           )}
         {:else if transfer.state === "failed"}
           <span class="failed" title={transfer.error ?? ""}>Failed</span>
+        {:else if transfer.state === "paused"}
+          Paused · {formatBytes(transfer.bytes)} / {formatBytes(transfer.size)}
         {:else}
           {transfer.state}
         {/if}
@@ -47,6 +55,15 @@
       <div class="fill" data-state={transfer.state} style:width="{percent}%"></div>
     </div>
   </div>
+  {#if paused}
+    <button class="act" title="Resume" aria-label="Resume" onclick={() => onResume?.(transfer.id)}
+      >▶</button
+    >
+  {:else if canPause}
+    <button class="act" title="Pause" aria-label="Pause" onclick={() => onPause?.(transfer.id)}
+      >⏸</button
+    >
+  {/if}
   {#if active}
     <button class="cancel" title="Cancel" aria-label="Cancel" onclick={() => onCancel(transfer.id)}
       >✕</button
@@ -109,12 +126,16 @@
   .fill[data-state="failed"] {
     background: #c0392b;
   }
-  .cancel {
+  .cancel,
+  .act {
     border: none;
     background: none;
     cursor: pointer;
     color: var(--muted, #888);
     font-size: 0.85rem;
+  }
+  .act:hover {
+    color: var(--accent, #396cd8);
   }
   .cancel:hover {
     color: #c0392b;

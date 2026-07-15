@@ -80,6 +80,21 @@ impl Engine {
         self.queue.cancel(id);
     }
 
+    /// Pause a transfer (resumable from its current offset).
+    pub fn pause_transfer(&self, id: TransferId) {
+        self.queue.pause(id);
+    }
+
+    /// Resume a paused transfer.
+    pub fn resume_transfer(&self, id: TransferId) {
+        self.queue.resume(id);
+    }
+
+    /// Pause all active transfers.
+    pub fn pause_all_transfers(&self) {
+        self.queue.pause_all();
+    }
+
     /// Set the maximum number of concurrently-running transfers (applies live).
     pub fn set_concurrency(&self, n: usize) {
         self.queue.set_concurrency(n);

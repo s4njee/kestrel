@@ -76,6 +76,7 @@ fn state_str(state: TransferState) -> &'static str {
     match state {
         TransferState::Queued => "queued",
         TransferState::Running => "running",
+        TransferState::Paused => "paused",
         TransferState::Done => "done",
         TransferState::Failed => "failed",
         TransferState::Canceled => "canceled",

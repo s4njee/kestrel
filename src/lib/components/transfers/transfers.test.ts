@@ -1,7 +1,7 @@
 // transfers.test.ts — Tests for the transfers store and TransferRow rendering.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, fireEvent } from "@testing-library/svelte";
 import TransferRow from "./TransferRow.svelte";
 import { transfers } from "$lib/stores/transfers.svelte";
 import type { Transfer } from "$lib/stores/transfers.svelte";
@@ -62,5 +62,16 @@ describe("TransferRow", () => {
     });
     expect(screen.getByText("done")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  it("shows a resume button (not pause) when paused", async () => {
+    const onResume = vi.fn();
+    render(TransferRow, {
+      props: { transfer: transfer({ state: "paused" }), onCancel: vi.fn(), onResume },
+    });
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    const resume = screen.getByRole("button", { name: "Resume" });
+    await fireEvent.click(resume);
+    expect(onResume).toHaveBeenCalledWith("t1");
   });
 });

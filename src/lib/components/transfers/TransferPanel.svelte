@@ -8,13 +8,34 @@
 <script lang="ts">
   import { ui } from "$lib/stores/ui.svelte";
   import { transfers } from "$lib/stores/transfers.svelte";
-  import { cancelTransfer, clearCompleted } from "$lib/ipc/commands";
+  import {
+    cancelTransfer,
+    clearCompleted,
+    pauseTransfer,
+    resumeTransfer,
+    pauseAllTransfers,
+  } from "$lib/ipc/commands";
   import Badge from "$lib/components/common/Badge.svelte";
   import TransferRow from "./TransferRow.svelte";
 
   /** Cancel a transfer via the backend. */
   function onCancel(id: string): void {
     void cancelTransfer(id);
+  }
+
+  /** Pause a transfer. */
+  function onPause(id: string): void {
+    void pauseTransfer(id);
+  }
+
+  /** Resume a paused transfer. */
+  function onResume(id: string): void {
+    void resumeTransfer(id);
+  }
+
+  /** Pause all active transfers. */
+  function onPauseAll(): void {
+    void pauseAllTransfers();
   }
 
   /** Clear finished transfers from the queue and store. */
@@ -32,7 +53,12 @@
       <Badge count={transfers.activeCount} />
     </button>
     {#if ui.transferPanelExpanded && transfers.list.length > 0}
-      <button class="clear" onclick={onClear}>Clear finished</button>
+      <span class="header-actions">
+        {#if transfers.activeCount > 0}
+          <button class="link" onclick={onPauseAll}>Pause all</button>
+        {/if}
+        <button class="link" onclick={onClear}>Clear finished</button>
+      </span>
     {/if}
   </div>
 
@@ -42,7 +68,7 @@
         <p class="empty">No transfers yet.</p>
       {:else}
         {#each transfers.list as transfer (transfer.id)}
-          <TransferRow {transfer} {onCancel} />
+          <TransferRow {transfer} {onCancel} {onPause} {onResume} />
         {/each}
       {/if}
     </div>
@@ -81,7 +107,11 @@
   .label {
     font-weight: 600;
   }
-  .clear {
+  .header-actions {
+    display: flex;
+    gap: 12px;
+  }
+  .link {
     background: none;
     border: none;
     cursor: pointer;

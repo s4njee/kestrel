@@ -13,7 +13,7 @@ pub mod retry;
 pub mod worker;
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU32, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
@@ -81,11 +81,13 @@ pub enum Direction {
     Download,
 }
 
-/// Lifecycle state of a transfer (minimal form).
+/// Lifecycle state of a transfer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferState {
     Queued,
     Running,
+    /// Paused by the user; resumable from the current offset.
+    Paused,
     Done,
     Failed,
     Canceled,
@@ -98,6 +100,12 @@ impl TransferState {
             self,
             TransferState::Done | TransferState::Failed | TransferState::Canceled
         )
+    }
+
+    /// Whether the transfer is active (queued, running, or paused) — i.e. not
+    /// finished.
+    pub fn is_active(self) -> bool {
+        !self.is_terminal()
     }
 }
 
@@ -126,8 +134,11 @@ pub struct TransferItem {
     pub bytes_done: AtomicU64,
     /// Number of attempts made so far (1-based once running).
     pub attempts: AtomicU32,
-    /// Cancellation token for this item.
-    pub cancel: CancellationToken,
+    /// True when the current stop was requested as a pause (resumable) rather
+    /// than a cancel (terminal).
+    pause_requested: AtomicBool,
+    /// Cancellation token for the current run; replaced on resume.
+    cancel: Mutex<CancellationToken>,
     state: Mutex<TransferState>,
 }
 
@@ -135,6 +146,34 @@ impl TransferItem {
     /// Current state.
     pub fn state(&self) -> TransferState {
         *self.state.lock().unwrap()
+    }
+
+    /// A clone of the current run's cancellation token (shares state).
+    pub fn token(&self) -> CancellationToken {
+        self.cancel.lock().unwrap().clone()
+    }
+
+    /// Whether the last stop request was a pause.
+    pub(crate) fn is_pause_requested(&self) -> bool {
+        self.pause_requested.load(Ordering::Relaxed)
+    }
+
+    /// Request a pause: mark it and cancel the in-flight attempt.
+    pub(crate) fn request_pause(&self) {
+        self.pause_requested.store(true, Ordering::Relaxed);
+        self.cancel.lock().unwrap().cancel();
+    }
+
+    /// Request a cancel: clear the pause flag and cancel the in-flight attempt.
+    pub(crate) fn request_cancel(&self) {
+        self.pause_requested.store(false, Ordering::Relaxed);
+        self.cancel.lock().unwrap().cancel();
+    }
+
+    /// Prepare for a resume: clear the pause flag and install a fresh token.
+    pub(crate) fn reset_for_resume(&self) {
+        self.pause_requested.store(false, Ordering::Relaxed);
+        *self.cancel.lock().unwrap() = CancellationToken::new();
     }
 
     /// Set the state (internal to the engine).
@@ -214,7 +253,8 @@ impl TransferQueue {
                 size: req.size,
                 bytes_done: AtomicU64::new(0),
                 attempts: AtomicU32::new(0),
-                cancel: CancellationToken::new(),
+                pause_requested: AtomicBool::new(false),
+                cancel: Mutex::new(CancellationToken::new()),
                 state: Mutex::new(TransferState::Queued),
             });
             self.shared.items.insert(id, item);
@@ -227,21 +267,75 @@ impl TransferQueue {
         ids
     }
 
-    /// Cancel a transfer. A queued item is marked Canceled immediately; a
+    /// Cancel a transfer. A queued/paused item is marked Canceled immediately; a
     /// running item's copy loop aborts and the worker finalizes it.
     pub fn cancel(&self, id: TransferId) {
         let Some(item) = self.shared.items.get(&id).map(|e| e.clone()) else {
             return;
         };
-        item.cancel.cancel();
-        if item.state() == TransferState::Queued {
-            self.shared
-                .pending
-                .lock()
-                .unwrap()
-                .retain(|pending| *pending != id);
+        item.request_cancel();
+        let state = item.state();
+        if state == TransferState::Queued || state == TransferState::Paused {
+            self.remove_pending(id);
             self.shared.emit_state(id, TransferState::Canceled, None);
         }
+    }
+
+    /// Pause a transfer. A running item's attempt is aborted (the worker sets
+    /// Paused and preserves the partial `.part`); a queued item is parked as
+    /// Paused immediately.
+    pub fn pause(&self, id: TransferId) {
+        let Some(item) = self.shared.items.get(&id).map(|e| e.clone()) else {
+            return;
+        };
+        match item.state() {
+            TransferState::Running => item.request_pause(),
+            TransferState::Queued => {
+                self.remove_pending(id);
+                self.shared.emit_state(id, TransferState::Paused, None);
+            }
+            _ => {}
+        }
+    }
+
+    /// Resume a paused transfer: re-queue it (the worker resumes from the
+    /// current `.part`/remote offset).
+    pub fn resume(&self, id: TransferId) {
+        let Some(item) = self.shared.items.get(&id).map(|e| e.clone()) else {
+            return;
+        };
+        if item.state() != TransferState::Paused {
+            return;
+        }
+        item.reset_for_resume();
+        self.shared.pending.lock().unwrap().push_back(id);
+        self.shared.emit_state(id, TransferState::Queued, None);
+        self.shared.notify.notify_one();
+    }
+
+    /// Pause every active (queued or running) transfer.
+    pub fn pause_all(&self) {
+        let ids: Vec<TransferId> = self
+            .shared
+            .items
+            .iter()
+            .filter(|e| {
+                matches!(e.state(), TransferState::Queued | TransferState::Running)
+            })
+            .map(|e| *e.key())
+            .collect();
+        for id in ids {
+            self.pause(id);
+        }
+    }
+
+    /// Remove an id from the pending FIFO.
+    fn remove_pending(&self, id: TransferId) {
+        self.shared
+            .pending
+            .lock()
+            .unwrap()
+            .retain(|pending| *pending != id);
     }
 
     /// Look up an item by id.
