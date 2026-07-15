@@ -149,6 +149,40 @@ pub trait RemoteFs: Send + Sync {
     fn capabilities(&self) -> FsCapabilities;
 }
 
+/// Recursively remove a path (file, symlink, or directory tree).
+///
+/// Symlinks are removed as links (never followed). Directories are emptied
+/// depth-first, then removed. For a non-recursive delete, call
+/// [`RemoteFs::remove_dir`] directly (it fails on a non-empty directory).
+///
+/// Arguments: `fs` — the filesystem; `path` — the path to remove.
+/// Returns: `()` on success.
+pub async fn remove_recursive(fs: &dyn RemoteFs, path: &str) -> Result<()> {
+    let meta = fs.stat(path).await?;
+    if meta.kind != EntryKind::Dir {
+        return fs.remove_file(path).await;
+    }
+
+    // Discover all directories (parents before children); remove files inline.
+    let mut dirs = vec![path.to_string()];
+    let mut stack = vec![path.to_string()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs.list(&dir).await? {
+            if entry.kind == EntryKind::Dir {
+                dirs.push(entry.path.clone());
+                stack.push(entry.path);
+            } else {
+                fs.remove_file(&entry.path).await?;
+            }
+        }
+    }
+    // Remove directories deepest-first (children were added after their parent).
+    for dir in dirs.into_iter().rev() {
+        fs.remove_dir(&dir).await?;
+    }
+    Ok(())
+}
+
 pub mod local;
 pub mod sftp;
 

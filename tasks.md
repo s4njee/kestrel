@@ -178,7 +178,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 
 ## Epic 4 — File Ops & Auth Completeness (milestone M4, size M)
 
-- [ ] **E4-S1 — File ops (engine + commands)** (M)
+- [x] **E4-S1 — File ops (engine + commands)** (M)
   - Do: engine: rename/move, delete (recursive via engine-side walk using `remove_file`/`remove_dir`), mkdir, `set_permissions` for both fs impls. Commands: `rename_entry`, `delete_entries(paths, recursive)`, `mkdir`, `set_permissions`, `stat_entry` + local twins.
   - Accept: integration tests each op on both fs; delete of non-empty dir requires `recursive=true`.
 - [ ] **E4-S2 — Context menu + op dialogs** (M)

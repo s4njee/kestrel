@@ -32,7 +32,9 @@ pub use error::{EngineError, ErrorClass, Result};
 pub use events::{EngineEvent, FileInfo, ProgressSample, PromptReply, Prompts, SessionId};
 pub use fs::local::LocalFs;
 pub use fs::sftp::SftpFs;
-pub use fs::{DirEntry, EntryKind, FsCapabilities, Metadata, RemoteFs, WriteMode};
+pub use fs::{
+    remove_recursive, DirEntry, EntryKind, FsCapabilities, Metadata, RemoteFs, WriteMode,
+};
 pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
 pub use pathsafe::{safe_component, safe_join};
 pub use session::{Engine, Session};

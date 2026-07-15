@@ -575,3 +575,34 @@ async fn reconnect_rebuilds_a_working_session() {
     // The pool is fresh (no idle channels carried over).
     assert_eq!(session.pool_idle_len().await, 0);
 }
+
+#[tokio::test]
+async fn remote_file_ops_rename_mkdir_delete_recursive_chmod() {
+    use sftpapp_engine::remove_recursive;
+    let server = support::start_password_server("u", "p").await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("kh"),
+        &[],
+    )));
+    let id = connect(&engine, server.port).await;
+    let fs = engine.session(id).unwrap().remote_fs().await;
+
+    // mkdir + rename.
+    fs.mkdir("/proj").await.unwrap();
+    std::fs::write(server.root().join("proj/a.txt"), b"x").unwrap();
+    fs.rename("/proj/a.txt", "/proj/b.txt").await.unwrap();
+    assert!(server.root().join("proj/b.txt").exists());
+    assert!(!server.root().join("proj/a.txt").exists());
+
+    // chmod.
+    fs.set_permissions("/proj/b.txt", 0o600).await.unwrap();
+    assert_eq!(fs.stat("/proj/b.txt").await.unwrap().permissions, Some(0o600));
+
+    // Non-recursive delete of a non-empty dir fails; recursive succeeds.
+    std::fs::create_dir(server.root().join("proj/sub")).unwrap();
+    std::fs::write(server.root().join("proj/sub/c.txt"), b"y").unwrap();
+    assert!(fs.remove_dir("/proj").await.is_err());
+    remove_recursive(&fs, "/proj").await.unwrap();
+    assert!(!server.root().join("proj").exists());
+}

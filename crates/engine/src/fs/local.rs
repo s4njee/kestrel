@@ -323,6 +323,19 @@ mod tests {
         assert!(matches!(err, EngineError::NotFound(_)));
     }
 
+    #[tokio::test]
+    async fn remove_recursive_deletes_tree() {
+        let (fs, dir) = setup();
+        let base = path_str(&dir, "tree");
+        tokio::fs::create_dir(&base).await.unwrap();
+        tokio::fs::create_dir(format!("{base}/sub")).await.unwrap();
+        tokio::fs::write(format!("{base}/a.txt"), b"a").await.unwrap();
+        tokio::fs::write(format!("{base}/sub/b.txt"), b"b").await.unwrap();
+
+        crate::fs::remove_recursive(&fs, &base).await.unwrap();
+        assert!(fs.stat(&base).await.is_err());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn set_and_read_permissions() {

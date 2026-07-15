@@ -8,6 +8,7 @@
 //! - [`local`]   — local filesystem access for the local pane
 
 pub mod browse;
+pub mod fileops;
 pub mod local;
 pub mod session;
 pub mod transfer;
