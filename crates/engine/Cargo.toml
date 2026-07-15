@@ -32,3 +32,4 @@ tempfile = { workspace = true }
 russh = { workspace = true }
 russh-sftp = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }

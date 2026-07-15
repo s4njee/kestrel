@@ -34,3 +34,4 @@ pub use fs::sftp::SftpFs;
 pub use fs::{DirEntry, EntryKind, FsCapabilities, Metadata, RemoteFs, WriteMode};
 pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
 pub use session::{Engine, Session};
+pub use transfer::io::{copy_file, CopyOptions};

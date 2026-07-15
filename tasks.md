@@ -120,7 +120,7 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 
 Goal: single-file upload/download with live progress and cancel. Proves the whole pipeline.
 
-- [ ] **E2-S1 — Chunked transfer I/O** (M)
+- [x] **E2-S1 — Chunked transfer I/O** (M)
   - Do: `transfer/io.rs`: `copy_stream(src: &dyn RemoteFs, dst: &dyn RemoteFs, ...)` — 256 KiB chunks, per-item `AtomicU64` progress, honors `CancellationToken` between chunks, downloads to `<name>.part` + fsync + atomic rename, uploads direct. Implement `SftpFs` open_read(offset)/open_write now if E1-S5 deferred them.
   - Accept: unit tests via LocalFs↔LocalFs and integration via in-process server: content integrity (hash compare), cancellation leaves `.part`, rename only on completion.
 - [ ] **E2-S2 — Minimal queue + progress aggregation + transfer IPC** (M)
