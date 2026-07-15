@@ -154,6 +154,40 @@ export function statEntry(sessionId: string, path: string): Promise<DirEntry> {
   return invoke("stat_entry", { sessionId, path });
 }
 
+/** Rename/move an entry (remote if `sessionId` is given, else local). */
+export function renameEntry(sessionId: string | null, from: string, to: string): Promise<void> {
+  return sessionId
+    ? invoke("rename_entry", { sessionId, from, to })
+    : invoke("local_rename", { from, to });
+}
+
+/** Delete entries (remote if `sessionId` is given, else local). */
+export function deleteEntries(
+  sessionId: string | null,
+  paths: string[],
+  recursive: boolean,
+): Promise<void> {
+  return sessionId
+    ? invoke("delete_entries", { sessionId, paths, recursive })
+    : invoke("local_delete", { paths, recursive });
+}
+
+/** Create a directory (remote if `sessionId` is given, else local). */
+export function makeDir(sessionId: string | null, path: string): Promise<void> {
+  return sessionId ? invoke("mkdir", { sessionId, path }) : invoke("local_mkdir", { path });
+}
+
+/** Set Unix permission bits (remote if `sessionId` is given, else local). */
+export function setPermissions(
+  sessionId: string | null,
+  path: string,
+  mode: number,
+): Promise<void> {
+  return sessionId
+    ? invoke("set_permissions", { sessionId, path, mode })
+    : invoke("local_set_permissions", { path, mode });
+}
+
 /**
  * Get the user's home directory (local pane default).
  *

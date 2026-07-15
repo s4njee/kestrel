@@ -26,6 +26,7 @@
     onActivate: () => void;
     onNavigate: (path: string) => void;
     onDrop?: (sourcePane: PaneKind) => void;
+    onContextMenu?: (entry: DirEntry, event: MouseEvent) => void;
     emptyMessage?: string;
     banner?: string | null;
   }
@@ -36,6 +37,7 @@
     onActivate,
     onNavigate,
     onDrop,
+    onContextMenu,
     emptyMessage = "Empty",
     banner = null,
   }: Props = $props();
@@ -105,6 +107,7 @@
         onSort={(k) => pane.setSort(k)}
         onSelect={(n, m) => pane.select(n, m)}
         {onOpen}
+        {onContextMenu}
       />
     {/if}
   </div>

@@ -21,13 +21,22 @@
     listDir,
     enqueueTransfers,
     enqueueDirectory,
+    renameEntry,
+    deleteEntries,
+    makeDir,
+    setPermissions,
     type SessionInfo,
     type TransferDirection,
   } from "$lib/ipc/commands";
   import type { DirEntry } from "$lib/ipc/commands";
   import type { PaneKind } from "$lib/types";
   import { buildTransferRequests, dropDirection, uploadRequestsForPaths } from "$lib/transfer";
+  import { parentPath, joinPath } from "$lib/utils/path";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import ContextMenu, { type MenuItem } from "$lib/components/common/ContextMenu.svelte";
+  import PermissionsDialog from "$lib/components/dialogs/PermissionsDialog.svelte";
+  import DeleteConfirmDialog from "$lib/components/dialogs/DeleteConfirmDialog.svelte";
+  import InputDialog from "$lib/components/dialogs/InputDialog.svelte";
   import Toolbar from "$lib/components/layout/Toolbar.svelte";
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
@@ -171,14 +180,162 @@
     if (any) ui.setTransferPanelExpanded(true);
   }
 
+  // File-operation dialog/menu state.
+  let contextMenu = $state<{ x: number; y: number; kind: PaneKind; entry: DirEntry } | null>(null);
+  let permsTarget = $state<{ kind: PaneKind; path: string; mode: number } | null>(null);
+  let deleteTarget = $state<{ kind: PaneKind; entries: DirEntry[] } | null>(null);
+  let inputDialog = $state<{
+    title: string;
+    label: string;
+    initial: string;
+    onSubmit: (value: string) => void;
+  } | null>(null);
+
+  /** The pane store for a kind. */
+  function paneOf(kind: PaneKind) {
+    return kind === "local" ? localPane : remotePane;
+  }
+
+  /** The session id to use for a pane's ops (null = local filesystem). */
+  function sessionIdFor(kind: PaneKind): string | null {
+    return kind === "remote" ? (sessions.active?.info.id ?? null) : null;
+  }
+
+  /** Reload a pane after an operation. */
+  function refresh(kind: PaneKind): void {
+    if (kind === "local") void loadLocal(localPane.path);
+    else if (remotePane.path) void loadRemote(remotePane.path);
+  }
+
   /** Refresh the active pane. */
   function refreshActive(): void {
-    if (ui.activePane === "local") void loadLocal(localPane.path);
-    else if (remotePane.path) void loadRemote(remotePane.path);
+    refresh(ui.activePane);
+  }
+
+  /** Open an entry from the pane (directories navigate). */
+  function openInPane(kind: PaneKind, entry: DirEntry): void {
+    if (entry.kind !== "dir") return;
+    if (kind === "local") void loadLocal(entry.path);
+    else void loadRemote(entry.path);
+  }
+
+  /** Rename an entry via an input dialog. */
+  function startRename(kind: PaneKind, entry: DirEntry): void {
+    inputDialog = {
+      title: "Rename",
+      label: "New name",
+      initial: entry.name,
+      onSubmit: async (name) => {
+        inputDialog = null;
+        const dest = joinPath(parentPath(entry.path), name);
+        await renameEntry(sessionIdFor(kind), entry.path, dest);
+        refresh(kind);
+      },
+    };
+  }
+
+  /** Create a new folder in a pane via an input dialog. */
+  function startNewFolder(kind: PaneKind): void {
+    inputDialog = {
+      title: "New folder",
+      label: "Folder name",
+      initial: "untitled",
+      onSubmit: async (name) => {
+        inputDialog = null;
+        await makeDir(sessionIdFor(kind), joinPath(paneOf(kind).path, name));
+        refresh(kind);
+      },
+    };
+  }
+
+  /** Delete the pane's selection (confirmed for directories). */
+  function startDelete(kind: PaneKind): void {
+    const entries = paneOf(kind).selectedEntries;
+    if (entries.length > 0) deleteTarget = { kind, entries };
+  }
+
+  /** Confirm and run the pending delete. */
+  async function confirmDelete(): Promise<void> {
+    if (!deleteTarget) return;
+    const { kind, entries } = deleteTarget;
+    deleteTarget = null;
+    const hasDir = entries.some((e) => e.kind === "dir");
+    await deleteEntries(
+      sessionIdFor(kind),
+      entries.map((e) => e.path),
+      hasDir,
+    );
+    refresh(kind);
+  }
+
+  /** Edit an entry's permissions. */
+  function startPermissions(kind: PaneKind, entry: DirEntry): void {
+    if (entry.permissions == null) return;
+    permsTarget = { kind, path: entry.path, mode: entry.permissions };
+  }
+
+  /** Apply an edited permission mode. */
+  async function applyPermissions(mode: number): Promise<void> {
+    if (!permsTarget) return;
+    const { kind, path } = permsTarget;
+    permsTarget = null;
+    await setPermissions(sessionIdFor(kind), path, mode);
+    refresh(kind);
+  }
+
+  /** Open the context menu for a right-clicked entry. */
+  function openContextMenu(kind: PaneKind, entry: DirEntry, event: MouseEvent): void {
+    contextMenu = { x: event.clientX, y: event.clientY, kind, entry };
+  }
+
+  /** Build the context-menu items for an entry. */
+  function menuItems(kind: PaneKind, entry: DirEntry): MenuItem[] {
+    const transfer =
+      kind === "remote"
+        ? { label: "Download", action: download }
+        : { label: "Upload", action: upload };
+    return [
+      { label: "Open", action: () => openInPane(kind, entry), disabled: entry.kind !== "dir" },
+      { separator: true },
+      { ...transfer, disabled: !connected },
+      { separator: true },
+      { label: "Rename…", action: () => startRename(kind, entry) },
+      { label: "Delete", action: () => startDelete(kind) },
+      { label: "New folder…", action: () => startNewFolder(kind) },
+      {
+        label: "Permissions…",
+        action: () => startPermissions(kind, entry),
+        disabled: entry.permissions == null,
+      },
+      { separator: true },
+      { label: "Copy path", action: () => void navigator.clipboard?.writeText(entry.path) },
+      { label: "Refresh", action: () => refresh(kind) },
+    ];
   }
 
   /** Global keyboard shortcuts. */
   function onGlobalKey(event: KeyboardEvent): void {
+    // Don't hijack typing in inputs.
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+
+    const kind = ui.activePane;
+    if (event.key === "F2") {
+      const entry = paneOf(kind).selectedEntries[0];
+      if (entry) {
+        event.preventDefault();
+        startRename(kind, entry);
+      }
+      return;
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (paneOf(kind).selected.size > 0) {
+        event.preventDefault();
+        startDelete(kind);
+      }
+      return;
+    }
+
     const meta = event.metaKey || event.ctrlKey;
     if (!meta) return;
     if (event.key === "r") {
@@ -218,6 +375,7 @@
           onActivate={() => ui.setActivePane("local")}
           onNavigate={loadLocal}
           onDrop={(src) => onPaneDrop(src, "local")}
+          onContextMenu={(entry, e) => openContextMenu("local", entry, e)}
         />
       {/snippet}
       {#snippet right()}
@@ -230,6 +388,7 @@
           onActivate={() => ui.setActivePane("remote")}
           onNavigate={loadRemote}
           onDrop={(src) => onPaneDrop(src, "remote")}
+          onContextMenu={(entry, e) => openContextMenu("remote", entry, e)}
           banner={remoteBanner}
         />
       {/snippet}
@@ -245,6 +404,40 @@
 {/if}
 <HostKeyDialog />
 <ConflictDialog />
+
+{#if contextMenu}
+  <ContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    items={menuItems(contextMenu.kind, contextMenu.entry)}
+    onClose={() => (contextMenu = null)}
+  />
+{/if}
+{#if permsTarget}
+  <PermissionsDialog
+    path={permsTarget.path}
+    mode={permsTarget.mode}
+    onApply={applyPermissions}
+    onCancel={() => (permsTarget = null)}
+  />
+{/if}
+{#if deleteTarget}
+  <DeleteConfirmDialog
+    names={deleteTarget.entries.map((e) => e.name)}
+    hasDir={deleteTarget.entries.some((e) => e.kind === "dir")}
+    onConfirm={confirmDelete}
+    onCancel={() => (deleteTarget = null)}
+  />
+{/if}
+{#if inputDialog}
+  <InputDialog
+    title={inputDialog.title}
+    label={inputDialog.label}
+    initial={inputDialog.initial}
+    onSubmit={inputDialog.onSubmit}
+    onCancel={() => (inputDialog = null)}
+  />
+{/if}
 
 <style>
   .app {
