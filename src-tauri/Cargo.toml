@@ -22,6 +22,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
 
 # The protocol-agnostic engine: sessions, transfers, RemoteFs. All disk/network
 # I/O lives here; the shell only marshals paths/metadata across IPC.

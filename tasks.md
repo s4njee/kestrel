@@ -99,7 +99,7 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 - [x] **E1-S6 — In-process SFTP test server** (M) — tempdir-backed; see tests/support/mod.rs
   - Do: `crates/engine/tests/support/`: russh server-side + russh-sftp server subsystem, backed by a tempdir; configurable auth (password map, authorized key) and a fixed host key. Runs on a random localhost port per test.
   - Accept: used by E1-S4/S5 tests; `cargo test --workspace` needs no network/Docker.
-- [ ] **E1-S7 — Tauri shell: state, session commands, prompt plumbing** (M)
+- [x] **E1-S7 — Tauri shell: state, session commands, prompt plumbing** (M)
   - Do: `src-tauri/src/`: `state.rs` (`AppState { sessions, pending_prompts: DashMap<Uuid, oneshot::Sender<PromptReply>>, ... }`), `dto.rs` (serde DTOs mirroring engine types), commands `connect` (awaits prompts mid-handshake), `disconnect`, `list_dir`, `local_list_dir`, `local_home_dir`, `respond_prompt`; `subscribe_session_events(Channel<SessionEvent>)` bridging the engine broadcast (payload shapes in Appendix A). Register everything in `lib.rs`.
   - Accept: `cargo test` for DTO serde shapes; manual: commands callable from devtools console via `window.__TAURI__.core.invoke`.
 - [ ] **E1-S8 — Frontend IPC layer + stores** (S)
@@ -365,3 +365,4 @@ Log of places where implementation diverged from the spec above. Append here as 
 - **E0-S1 — app name**: proceeded with the working name `sftpapp` / `io.sanjee.sftpapp` (package, crate, productName). Still the open item from E0-S1 — rename remains cheap until signing (E5).
 - **E0-S3 — jsdom localStorage**: this environment's jsdom does not expose `window.localStorage` (opaque-origin behavior) and Node's global `localStorage` is inert. Added an in-memory `localStorage` polyfill in `vitest-setup.ts` (plus a concrete jsdom `url`) so the ui store's persistence is testable. The ui store reads via `window.localStorage`, never the bare global.
 - **E0-S5 — CI remote run**: `ci.yml` passes `actionlint` and every step was verified locally on macOS (clippy, cargo test, pnpm check/lint/test, and `pnpm tauri build --debug --ci` which produced `sftpapp.app` + `.dmg`). A green run on the GitHub-hosted matrix (ubuntu-22.04 + windows-latest) requires the user to push — not verifiable from here.
+- **E1-S7 — prompt registry location**: Appendix A sketches `pending_prompts` in `src-tauri` `AppState`; instead the oneshot prompt registry lives in the engine (`Engine::prompts()`, `events::Prompts`) because the engine is the side that awaits the reply mid-handshake. `AppState` is just `{ engine: Arc<Engine> }`; the `respond_prompt` command forwards to `engine.prompts().respond(...)`. Cleaner separation, same behavior.
