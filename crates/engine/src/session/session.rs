@@ -44,9 +44,29 @@ fn map_russh(e: russh::Error) -> EngineError {
 /// Map a russh-sftp error into an [`EngineError`].
 ///
 /// Arguments: `e` — the sftp-layer error.
-/// Returns: an engine error (refined per status code in E1-S5).
+/// Returns: a classified engine error — SFTP status codes for "no such file"
+/// and "permission denied" become the corresponding variants; I/O and timeout
+/// become connection/timeout errors; anything else is a protocol error.
 pub(crate) fn map_sftp(e: russh_sftp::client::error::Error) -> EngineError {
-    EngineError::Protocol(format!("sftp: {e}"))
+    use russh_sftp::client::error::Error as E;
+    use russh_sftp::protocol::StatusCode;
+    match e {
+        E::Status(s) => {
+            let msg = if s.error_message.is_empty() {
+                format!("{}", s.status_code)
+            } else {
+                s.error_message
+            };
+            match s.status_code {
+                StatusCode::NoSuchFile => EngineError::NotFound(msg),
+                StatusCode::PermissionDenied => EngineError::PermissionDenied(msg),
+                _ => EngineError::Protocol(format!("sftp: {msg}")),
+            }
+        }
+        E::Timeout => EngineError::Timeout,
+        E::IO(m) => EngineError::ConnectionLost(m),
+        other => EngineError::Protocol(format!("sftp: {other}")),
+    }
 }
 
 /// Convert a russh server public key into the engine's [`HostKey`].
@@ -135,6 +155,14 @@ impl Session {
     /// Returns: a shared handle to the [`SftpSession`].
     pub fn sftp(&self) -> Arc<SftpSession> {
         self.sftp.clone()
+    }
+
+    /// A [`RemoteFs`](crate::fs::RemoteFs) view over the interactive channel.
+    ///
+    /// Returns: an [`SftpFs`](crate::fs::sftp::SftpFs) sharing this session's
+    /// SFTP channel, so browsing/file-ops go through the common trait.
+    pub fn remote_fs(&self) -> crate::fs::sftp::SftpFs {
+        crate::fs::sftp::SftpFs::new(self.sftp.clone())
     }
 }
 

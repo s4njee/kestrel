@@ -93,10 +93,10 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 - [x] **E1-S4 — SSH session + auth ladder (password, key file)** (L)
   - Do: `session/session.rs`: connect via russh (`client::connect`), `Handler::check_server_key` → hostkey lookup → if Unknown/Changed, emit a prompt through an engine callback channel and await the decision (oneshot). Auth ladder: try key file (`russh::keys::load_secret_key`, passphrase via prompt callback if encrypted) then password (prompt callback). Open ONE sftp subsystem channel (the interactive channel) → `SftpFs` handle. `SessionManager` (`DashMap<SessionId, Session>`) with connect/disconnect. `events.rs`: `EngineEvent` broadcast (SessionConnected/Disconnected, prompts).
   - Accept: integration test against E1-S7's in-process server: password connect, wrong password fails cleanly, TOFU Unknown→accept→Known on reconnect, Changed→hard error.
-- [ ] **E1-S5 — `SftpFs`: list/stat/read_link** (M)
+- [x] **E1-S5 — `SftpFs`: list/stat/read_link** (M)
   - Do: `fs/sftp.rs` wrapping a russh-sftp client channel; map attrs → `DirEntry`/`Metadata` (permissions, mtime, size, symlink targets via `read_link`). Leave write-side methods `unimplemented!` until E2-S1 _or_ implement now if trivial — your call, note it.
   - Accept: integration tests (in-process server): list dir with files/dirs/symlinks/unicode names; stat; large dir (1000 entries) returns complete.
-- [ ] **E1-S6 — In-process SFTP test server** (M) — _build alongside E1-S4/S5; listed separately for clarity_
+- [x] **E1-S6 — In-process SFTP test server** (M) — tempdir-backed; see tests/support/mod.rs
   - Do: `crates/engine/tests/support/`: russh server-side + russh-sftp server subsystem, backed by a tempdir; configurable auth (password map, authorized key) and a fixed host key. Runs on a random localhost port per test.
   - Accept: used by E1-S4/S5 tests; `cargo test --workspace` needs no network/Docker.
 - [ ] **E1-S7 — Tauri shell: state, session commands, prompt plumbing** (M)
