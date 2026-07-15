@@ -1,9 +1,97 @@
-//! events.rs — Engine event types broadcast to the shell.
+//! events.rs — Engine event types and the interactive-prompt registry.
 //!
-//! The engine publishes `EngineEvent`s (session state, host-key/auth prompts,
-//! transfer progress and state changes, local-directory changes) over a tokio
-//! broadcast channel. `src-tauri` bridges these to Tauri Channels for the
-//! webview. Progress is pre-aggregated to ≤10 Hz before it reaches this layer.
-//!
-//! STUB (E0-S2): event enum defined alongside the session work in E1-S4 and the
-//! transfer work in E2-S2.
+//! The engine publishes [`EngineEvent`]s over a tokio broadcast channel; the
+//! Tauri shell bridges them to the webview. Some flows (host-key trust, and
+//! later passphrase / keyboard-interactive) must pause mid-operation and wait
+//! for a user decision: the engine registers a pending prompt in [`Prompts`],
+//! emits an event carrying the `prompt_id`, and awaits a oneshot reply that the
+//! shell delivers via [`Prompts::respond`].
+
+use dashmap::DashMap;
+use tokio::sync::oneshot;
+use uuid::Uuid;
+
+/// Identifies a live session in the [`crate::session::Engine`].
+pub type SessionId = Uuid;
+
+/// Events emitted by the engine for the shell to react to.
+///
+/// Progress/transfer events are added in Epic 2; this covers session lifecycle
+/// and the host-key prompt for Epic 1.
+#[derive(Clone, Debug)]
+pub enum EngineEvent {
+    /// A session finished connecting and authenticating.
+    SessionConnected { session_id: SessionId },
+    /// A session ended (clean disconnect or dropped connection).
+    SessionDisconnected {
+        session_id: SessionId,
+        reason: Option<String>,
+    },
+    /// The server presented a host key that needs a user decision (TOFU).
+    ///
+    /// `changed` distinguishes an unknown host (false) from a key that differs
+    /// from what is on record (true) — the latter is a potential MITM and the
+    /// UI must present it as a destructive confirmation.
+    HostKeyPrompt {
+        prompt_id: Uuid,
+        host: String,
+        port: u16,
+        algorithm: String,
+        fingerprint_sha256: String,
+        changed: bool,
+        existing_fingerprint: Option<String>,
+    },
+}
+
+/// A user's reply to a pending prompt.
+#[derive(Debug)]
+pub enum PromptReply {
+    /// Response to a [`EngineEvent::HostKeyPrompt`]: accept and trust, or reject.
+    HostKey { accept: bool },
+}
+
+/// Registry of prompts awaiting a user reply.
+///
+/// Cloneable handle over shared state (safe to hand to both the connecting task
+/// and the shell's command handlers).
+#[derive(Clone, Default)]
+pub struct Prompts {
+    pending: std::sync::Arc<DashMap<Uuid, oneshot::Sender<PromptReply>>>,
+}
+
+impl Prompts {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a new pending prompt.
+    ///
+    /// Returns: a fresh `prompt_id` and the receiver the caller awaits. The
+    /// matching sender is stored until [`respond`](Self::respond) fires.
+    pub fn register(&self) -> (Uuid, oneshot::Receiver<PromptReply>) {
+        let id = Uuid::new_v4();
+        let (tx, rx) = oneshot::channel();
+        self.pending.insert(id, tx);
+        (id, rx)
+    }
+
+    /// Deliver a reply to a pending prompt.
+    ///
+    /// Arguments: `id` — the prompt to answer; `reply` — the user's decision.
+    /// Returns: `true` if a matching pending prompt was found and notified;
+    /// `false` if the id was unknown or already answered/cancelled.
+    pub fn respond(&self, id: Uuid, reply: PromptReply) -> bool {
+        match self.pending.remove(&id) {
+            Some((_, tx)) => tx.send(reply).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Drop a pending prompt without answering it (e.g. the operation aborted).
+    ///
+    /// Arguments: `id` — the prompt to cancel.
+    pub fn cancel(&self, id: Uuid) {
+        self.pending.remove(&id);
+    }
+}

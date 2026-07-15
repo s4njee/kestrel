@@ -26,4 +26,9 @@ pub mod session;
 pub mod transfer;
 pub mod watcher;
 
+pub use auth::{AuthMethod, ConnectParams, Secret};
 pub use error::{EngineError, ErrorClass, Result};
+pub use events::{EngineEvent, PromptReply, Prompts, SessionId};
+pub use fs::{DirEntry, EntryKind, FsCapabilities, Metadata, RemoteFs, WriteMode};
+pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
+pub use session::{Engine, Session};

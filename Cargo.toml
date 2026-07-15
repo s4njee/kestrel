@@ -50,3 +50,4 @@ notify = "8"
 
 # Test-only helpers
 tempfile = "3"
+rand = "0.9"

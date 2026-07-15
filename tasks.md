@@ -90,7 +90,7 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 - [x] **E1-S3 — Host-key store + TOFU decisions** (M)
   - Do: `hostkey.rs`: parse/append OpenSSH `known_hosts` (app copy in `app_data_dir`, plus user's `~/.ssh/known_hosts` read-only); lookup result `Known | Unknown | Changed{old_fingerprint}`; SHA-256 fingerprint formatting (OpenSSH base64 style). **Must support hashed `|1|` entries** (HMAC-SHA1 matching — implement if russh helpers don't cover it; verify with a hashed fixture).
   - Accept: fixture tests: plain host, `[host]:port`, hashed entry, changed key detection; append writes valid lines that OpenSSH `ssh-keygen -F` would match.
-- [ ] **E1-S4 — SSH session + auth ladder (password, key file)** (L)
+- [x] **E1-S4 — SSH session + auth ladder (password, key file)** (L)
   - Do: `session/session.rs`: connect via russh (`client::connect`), `Handler::check_server_key` → hostkey lookup → if Unknown/Changed, emit a prompt through an engine callback channel and await the decision (oneshot). Auth ladder: try key file (`russh::keys::load_secret_key`, passphrase via prompt callback if encrypted) then password (prompt callback). Open ONE sftp subsystem channel (the interactive channel) → `SftpFs` handle. `SessionManager` (`DashMap<SessionId, Session>`) with connect/disconnect. `events.rs`: `EngineEvent` broadcast (SessionConnected/Disconnected, prompts).
   - Accept: integration test against E1-S7's in-process server: password connect, wrong password fails cleanly, TOFU Unknown→accept→Known on reconnect, Changed→hard error.
 - [ ] **E1-S5 — `SftpFs`: list/stat/read_link** (M)

@@ -59,6 +59,21 @@ impl HostKey {
     pub fn base64_blob(&self) -> String {
         STANDARD.encode(&self.blob)
     }
+
+    /// Parse a host key from an OpenSSH public-key line.
+    ///
+    /// Accepts the `algorithm base64blob [comment]` form produced by
+    /// `ssh_key::PublicKey::to_openssh`, so the session layer can convert a
+    /// russh server key without depending on russh types here.
+    ///
+    /// Arguments: `line` — an OpenSSH public-key string.
+    /// Returns: `Some(HostKey)` when the algorithm and base64 blob parse.
+    pub fn from_openssh(line: &str) -> Option<HostKey> {
+        let mut tokens = line.split_whitespace();
+        let algorithm = tokens.next()?.to_string();
+        let blob = STANDARD.decode(tokens.next()?).ok()?;
+        Some(HostKey::new(algorithm, blob))
+    }
 }
 
 /// Result of checking a presented host key against the known_hosts store.

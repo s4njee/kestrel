@@ -15,10 +15,20 @@ description = "Protocol-agnostic file-transfer and SSH/SFTP session engine for s
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 sha1 = { workspace = true }
 hmac = { workspace = true }
+russh = { workspace = true }
+russh-sftp = { workspace = true }
+dashmap = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+russh = { workspace = true }
+russh-sftp = { workspace = true }
+tokio = { workspace = true }
