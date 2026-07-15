@@ -69,7 +69,7 @@ Goal: a running empty shell on all 3 OSes + workspace + CI. No SSH yet.
 - [x] **E0-S4 — Dual-pane shell UI skeleton** (M)
   - Do: build the static layout per Appendix A frontend tree: `SplitPane` (draggable divider, persisted ratio in a `ui.svelte.ts` runes store), two placeholder `FilePane`s ("Local" / "Not connected"), top `Toolbar` (connect button placeholder), bottom `TransferPanel` dock (collapsed, empty state), `StatusBar`. Mock data only, no IPC. Keyboard focus outline between panes (active pane concept in store).
   - Accept: shell renders in `pnpm tauri dev`; divider drags and ratio survives reload (window-state or localStorage); `pnpm check`/`lint`/`test` green.
-- [ ] **E0-S5 — CI pipeline** (S)
+- [x] **E0-S5 — CI pipeline** (S)
   - Do: `.github/workflows/ci.yml` — PR/push job on `[macos-14, ubuntu-22.04, windows-latest]`: install pnpm + Rust stable, ubuntu system deps (`libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf`), then `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `pnpm check`, `pnpm lint`, `pnpm test`, `pnpm tauri build --ci` (debug bundle ok on PR). Cache cargo + pnpm.
   - Accept: workflow file lints (actionlint if available); local equivalents of every step pass. (Green remote run requires the user to push — note it in Deviations if unverifiable.)
 
@@ -356,3 +356,12 @@ lib/utils/{path,format}.ts
 | @tanstack/svelte-virtual + Svelte 5 friction                                              | Hand-rolled runes virtual list fallback, isolated in FileTable (E1-S10)                                          |
 | tauri-driver: no macOS e2e                                                                | Engine integration tests + manual checklist (E5-S6)                                                              |
 | russh 0.x API churn                                                                       | Exact-pin versions; russh types confined to `fs/sftp.rs`, `session/`, `auth.rs`                                  |
+
+## Deviations
+
+Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E0-S1 — config file extensions**: `create-tauri-app` (svelte-ts, v4.6.2) scaffolds `vite.config.js` and `svelte.config.js`, not the `.ts` variants Appendix A lists. Kept the scaffold defaults; no functional difference.
+- **E0-S1 — app name**: proceeded with the working name `sftpapp` / `io.sanjee.sftpapp` (package, crate, productName). Still the open item from E0-S1 — rename remains cheap until signing (E5).
+- **E0-S3 — jsdom localStorage**: this environment's jsdom does not expose `window.localStorage` (opaque-origin behavior) and Node's global `localStorage` is inert. Added an in-memory `localStorage` polyfill in `vitest-setup.ts` (plus a concrete jsdom `url`) so the ui store's persistence is testable. The ui store reads via `window.localStorage`, never the bare global.
+- **E0-S5 — CI remote run**: `ci.yml` passes `actionlint` and every step was verified locally on macOS (clippy, cargo test, pnpm check/lint/test, and `pnpm tauri build --debug --ci` which produced `sftpapp.app` + `.dmg`). A green run on the GitHub-hosted matrix (ubuntu-22.04 + windows-latest) requires the user to push — not verifiable from here.
