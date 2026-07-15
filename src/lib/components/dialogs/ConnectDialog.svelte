@@ -1,35 +1,58 @@
 <!--
   ConnectDialog.svelte — New-connection form.
 
-  Collects host/port/username and an auth method (password or private key file),
-  then calls the `connect` command. While connecting, a host-key prompt may
-  appear (HostKeyDialog, driven by the prompts store); this dialog stays in a
-  "Connecting…" state until `connect` resolves or fails. On success it reports
-  the SessionInfo and closes.
+  Collects host/port/username and an auth method (password, key file, ssh-agent,
+  or keyboard-interactive), then calls the `connect` command. While connecting a
+  host-key prompt may appear (HostKeyDialog, driven by the prompts store); this
+  dialog stays "Connecting…" until `connect` resolves or fails. On success it
+  reports the SessionInfo and closes.
+
+  Doubles as the bookmark editor: pass `initial` to prefill from a saved
+  bookmark, and use the "Save as bookmark" toggle to persist details (plus any
+  secret) via the bookmarks store — either standalone ("Save") or alongside a
+  connect.
 
   Props:
-  - onClose: () => void                    — dismiss the dialog.
+  - onClose: () => void                      — dismiss the dialog.
   - onConnected: (info: SessionInfo) => void — called after a successful connect.
+  - initial?: Bookmark | null                — prefill from an existing bookmark.
 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-  import { connect, type ConnectRequest, type SessionInfo } from "$lib/ipc/commands";
+  import {
+    connect,
+    NIL_UUID,
+    type Bookmark,
+    type BookmarkAuthMethod,
+    type ConnectRequest,
+    type SessionInfo,
+  } from "$lib/ipc/commands";
+  import { bookmarks } from "$lib/stores/bookmarks.svelte";
   import Modal from "$lib/components/common/Modal.svelte";
 
   interface Props {
     onClose: () => void;
     onConnected: (info: SessionInfo) => void;
+    /** Prefill the form from an existing bookmark (edit / connect-with-prompt). */
+    initial?: Bookmark | null;
   }
 
-  let { onClose, onConnected }: Props = $props();
+  let { onClose, onConnected, initial = null }: Props = $props();
 
-  let host = $state("");
-  let port = $state(22);
-  let username = $state("");
-  let method = $state<"password" | "key" | "agent" | "keyboardInteractive">("password");
+  // Prefill from a bookmark once on mount; the form is edited freely afterward.
+  const seed = untrack(() => initial);
+  let host = $state(seed?.host ?? "");
+  let port = $state(seed?.port ?? 22);
+  let username = $state(seed?.username ?? "");
+  let method = $state<BookmarkAuthMethod>(seed?.authMethod ?? "password");
   let password = $state("");
-  let keyPath = $state("");
+  let keyPath = $state(seed?.keyPath ?? "");
   let passphrase = $state("");
+
+  // Save-as-bookmark: on by default when editing an existing bookmark.
+  let saveAsBookmark = $state(seed != null);
+  let bookmarkName = $state(seed?.name ?? "");
 
   let connecting = $state(false);
   let error = $state<string | null>(null);
@@ -40,6 +63,8 @@
   let canSubmit = $derived(
     host.trim() !== "" && username.trim() !== "" && methodReady && !connecting,
   );
+  // Saving (without connecting) needs the connection fields but not a secret.
+  let canSave = $derived(host.trim() !== "" && username.trim() !== "" && !connecting);
 
   /** Open a native file picker for the private key path. */
   async function browseKey(): Promise<void> {
@@ -60,7 +85,42 @@
     return { host: host.trim(), port, username: username.trim(), auth };
   }
 
-  /** Submit the form: connect, then report success or show the error. */
+  /** The secret to persist for the current method, or undefined if none. */
+  function secretValue(): string | undefined {
+    if (method === "password") return password || undefined;
+    if (method === "key") return passphrase || undefined;
+    return undefined;
+  }
+
+  /** Build a Bookmark from the current form (id preserved when editing). */
+  function formBookmark(): Bookmark {
+    return {
+      id: seed?.id ?? NIL_UUID,
+      name: bookmarkName.trim() || host.trim(),
+      host: host.trim(),
+      port,
+      username: username.trim(),
+      authMethod: method,
+      keyPath: method === "key" ? keyPath.trim() || null : null,
+      remoteDir: seed?.remoteDir ?? null,
+      localDir: seed?.localDir ?? null,
+      hasSavedSecret: seed?.hasSavedSecret ?? false,
+    };
+  }
+
+  /** Persist the bookmark (and any secret) without connecting. */
+  async function save(): Promise<void> {
+    if (!canSave) return;
+    error = null;
+    try {
+      await bookmarks.save(formBookmark(), secretValue());
+      onClose();
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  /** Submit the form: connect, optionally save a bookmark, report the result. */
   async function submit(event: Event): Promise<void> {
     event.preventDefault();
     if (!canSubmit) return;
@@ -68,6 +128,14 @@
     error = null;
     try {
       const info = await connect(buildRequest());
+      if (saveAsBookmark) {
+        // A save failure must not undo a successful connection.
+        try {
+          await bookmarks.save(formBookmark(), secretValue());
+        } catch (e) {
+          console.error("failed to save bookmark", e);
+        }
+      }
       onConnected(info);
       onClose();
     } catch (e) {
@@ -78,7 +146,10 @@
   }
 </script>
 
-<Modal title="Connect to server" onClose={connecting ? undefined : onClose}>
+<Modal
+  title={seed ? "Edit bookmark" : "Connect to server"}
+  onClose={connecting ? undefined : onClose}
+>
   <form onsubmit={submit} class="form">
     <label>
       <span>Host</span>
@@ -132,12 +203,25 @@
       </label>
     {/if}
 
+    <label class="radio save-toggle">
+      <input type="checkbox" bind:checked={saveAsBookmark} /> Save as bookmark
+    </label>
+    {#if saveAsBookmark}
+      <label>
+        <span>Bookmark name</span>
+        <input bind:value={bookmarkName} placeholder={host || "My server"} autocomplete="off" />
+      </label>
+    {/if}
+
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
 
     <div class="actions">
       <button type="button" onclick={onClose} disabled={connecting}>Cancel</button>
+      {#if saveAsBookmark}
+        <button type="button" onclick={save} disabled={!canSave}>Save</button>
+      {/if}
       <button type="submit" class="primary" disabled={!canSubmit}>
         {connecting ? "Connecting…" : "Connect"}
       </button>

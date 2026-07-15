@@ -13,11 +13,13 @@
   import { sessions } from "$lib/stores/sessions.svelte";
   import { transfers } from "$lib/stores/transfers.svelte";
   import { prompts } from "$lib/stores/prompts.svelte";
+  import { bookmarks } from "$lib/stores/bookmarks.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents } from "$lib/ipc/events";
   import { respondPrompt } from "$lib/ipc/commands";
   import {
     disconnect as disconnectCmd,
+    connectBookmark,
     localHomeDir,
     localListDir,
     listDir,
@@ -27,6 +29,7 @@
     deleteEntries,
     makeDir,
     setPermissions,
+    type Bookmark,
     type SessionInfo,
     type TransferDirection,
   } from "$lib/ipc/commands";
@@ -45,11 +48,20 @@
   import FilePane from "$lib/components/pane/FilePane.svelte";
   import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
+  import BookmarkManager from "$lib/components/dialogs/BookmarkManager.svelte";
   import HostKeyDialog from "$lib/components/dialogs/HostKeyDialog.svelte";
   import ConflictDialog from "$lib/components/dialogs/ConflictDialog.svelte";
   import PromptDialog from "$lib/components/dialogs/PromptDialog.svelte";
 
   let showConnect = $state(false);
+  // The bookmark prefilling the connect dialog: null = a fresh connection.
+  let connectSeed = $state<Bookmark | null>(null);
+
+  /** Open the connect dialog, optionally prefilled from a bookmark. */
+  function openConnect(seed: Bookmark | null = null): void {
+    connectSeed = seed;
+    showConnect = true;
+  }
 
   let active = $derived(sessions.active);
   let connected = $derived(active !== null);
@@ -88,6 +100,7 @@
     // Guard: browser dev preview has no Tauri runtime.
     try {
       void initSessionEvents();
+      bookmarks.load().catch(() => {});
       localHomeDir()
         .then(loadLocal)
         .catch(() => {});
@@ -131,7 +144,7 @@
       remotePane.reset();
       await disconnectCmd(id);
     } else {
-      showConnect = true;
+      openConnect(null);
     }
   }
 
@@ -140,6 +153,18 @@
     sessions.add(info);
     void loadRemote("/");
     ui.setActivePane("remote");
+  }
+
+  /**
+   * Connect using a saved bookmark. If the backend can't (e.g. no saved
+   * password), fall back to the connect dialog prefilled from the bookmark.
+   */
+  async function connectFromBookmark(bookmark: Bookmark): Promise<void> {
+    try {
+      onConnected(await connectBookmark(bookmark.id));
+    } catch {
+      openConnect(bookmark);
+    }
   }
 
   let canUpload = $derived(connected && localPane.selected.size > 0);
@@ -382,18 +407,26 @@
         />
       {/snippet}
       {#snippet right()}
-        <FilePane
-          pane={remotePane}
-          active={ui.activePane === "remote"}
-          emptyMessage={connected
-            ? "Empty directory."
-            : "Not connected. Use Connect… to open a session."}
-          onActivate={() => ui.setActivePane("remote")}
-          onNavigate={loadRemote}
-          onDrop={(src) => onPaneDrop(src, "remote")}
-          onContextMenu={(entry, e) => openContextMenu("remote", entry, e)}
-          banner={remoteBanner}
-        />
+        {#if connected}
+          <FilePane
+            pane={remotePane}
+            active={ui.activePane === "remote"}
+            emptyMessage="Empty directory."
+            onActivate={() => ui.setActivePane("remote")}
+            onNavigate={loadRemote}
+            onDrop={(src) => onPaneDrop(src, "remote")}
+            onContextMenu={(entry, e) => openContextMenu("remote", entry, e)}
+            banner={remoteBanner}
+          />
+        {:else}
+          <section class="bookmark-pane" aria-label="remote pane">
+            <BookmarkManager
+              onConnect={connectFromBookmark}
+              onEdit={(b) => openConnect(b)}
+              onAdd={() => openConnect(null)}
+            />
+          </section>
+        {/if}
       {/snippet}
     </SplitPane>
   </main>
@@ -403,7 +436,7 @@
 </div>
 
 {#if showConnect}
-  <ConnectDialog {onConnected} onClose={() => (showConnect = false)} />
+  <ConnectDialog {onConnected} initial={connectSeed} onClose={() => (showConnect = false)} />
 {/if}
 <HostKeyDialog />
 <ConflictDialog />
@@ -471,5 +504,17 @@
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
+  }
+  .bookmark-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    border: 1px solid var(--border, #d0d0d0);
+    border-radius: 6px;
+    margin: 6px;
+    overflow: hidden;
+    background: var(--surface, #fff);
   }
 </style>

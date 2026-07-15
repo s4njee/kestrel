@@ -38,3 +38,6 @@ keyring = { workspace = true }
 # I/O lives here; the shell only marshals paths/metadata across IPC.
 sftpapp-engine = { path = "../crates/engine" }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+

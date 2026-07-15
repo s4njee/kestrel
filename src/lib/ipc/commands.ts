@@ -41,6 +41,27 @@ export interface ConnectRequest {
   auth: Auth;
 }
 
+/** Which auth method a bookmark uses (the persisted string form). */
+export type BookmarkAuthMethod = "password" | "key" | "agent" | "keyboardInteractive";
+
+/** A saved connection bookmark (mirrors `Bookmark`). Never carries a secret. */
+export interface Bookmark {
+  /** Stable id; nil (all-zero UUID) means "new" when saving. */
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  authMethod: BookmarkAuthMethod;
+  keyPath: string | null;
+  remoteDir: string | null;
+  localDir: string | null;
+  hasSavedSecret: boolean;
+}
+
+/** The nil UUID used to mark an unsaved (new) bookmark. */
+export const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
 /** A reply to a prompt (mirrors `PromptReplyDto`). */
 export type PromptReply =
   { type: "hostKey"; accept: boolean } | { type: "keyboardInteractive"; responses: string[] };
@@ -139,6 +160,46 @@ export function disconnect(sessionId: string): Promise<void> {
  */
 export function respondPrompt(promptId: string, reply: PromptReply): Promise<void> {
   return invoke("respond_prompt", { promptId, reply });
+}
+
+/**
+ * List all saved bookmarks.
+ *
+ * @returns every stored bookmark (no secrets).
+ */
+export function listBookmarks(): Promise<Bookmark[]> {
+  return invoke("list_bookmarks");
+}
+
+/**
+ * Create or update a bookmark, optionally saving a secret to the OS keychain.
+ *
+ * @param bookmark - the details to store (nil id ⇒ new).
+ * @param secret - optional password/passphrase to persist in the keychain.
+ * @returns the stored bookmark, with its assigned id and secret flag.
+ */
+export function saveBookmark(bookmark: Bookmark, secret?: string): Promise<Bookmark> {
+  return invoke("save_bookmark", { bookmark, secret: secret ?? null });
+}
+
+/**
+ * Delete a bookmark and any keychain secret it owns.
+ *
+ * @param id - the bookmark id.
+ */
+export function deleteBookmark(id: string): Promise<void> {
+  return invoke("delete_bookmark", { id });
+}
+
+/**
+ * Connect using a saved bookmark; the backend reads any saved secret.
+ *
+ * @param id - the bookmark id.
+ * @returns the new session's info. Rejects when a required secret is not saved
+ *   (the caller should then open the connect dialog to prompt for it).
+ */
+export function connectBookmark(id: string): Promise<SessionInfo> {
+  return invoke("connect_bookmark", { id });
 }
 
 /**

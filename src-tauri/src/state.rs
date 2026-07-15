@@ -9,28 +9,31 @@ use std::sync::Arc;
 
 use sftpapp_engine::Engine;
 
+use crate::bookmarks::BookmarkStore;
 use crate::secrets::SecretStore;
 
 /// Application-wide state managed by Tauri.
 pub struct AppState {
     pub engine: Arc<Engine>,
-    /// OS keychain (or session-only fallback) for saved credentials. Consumed by
-    /// the bookmark save/connect flow (E4-S6); constructed here so the store is
-    /// probed once at startup.
-    #[allow(dead_code)] // read by the bookmark save/connect flow (E4-S6)
+    /// OS keychain (or session-only fallback) for saved credentials. Read by the
+    /// bookmark save/connect flow; constructed once at startup.
     pub secrets: Arc<dyn SecretStore>,
+    /// Persisted connection bookmarks.
+    pub bookmarks: BookmarkStore,
 }
 
 impl AppState {
-    /// Wrap an engine and secret store in the managed state.
+    /// Wrap the engine, secret store, and bookmark store in managed state.
     ///
     /// Arguments: `engine` — the session/transfer engine; `secrets` — the
-    /// credential store (keychain-backed or a session-only fallback).
+    /// credential store (keychain-backed or a session-only fallback);
+    /// `bookmarks` — the persisted bookmark store.
     /// Returns: the managed [`AppState`].
-    pub fn new(engine: Engine, secrets: Arc<dyn SecretStore>) -> Self {
+    pub fn new(engine: Engine, secrets: Arc<dyn SecretStore>, bookmarks: BookmarkStore) -> Self {
         AppState {
             engine: Arc::new(engine),
             secrets,
+            bookmarks,
         }
     }
 }

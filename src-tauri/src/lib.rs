@@ -6,13 +6,10 @@
 //! (Tauri) and the protocol-agnostic engine (`sftpapp-engine`); no file bytes
 //! ever cross the IPC boundary — see `tasks.md` "Conventions & invariants".
 
+mod bookmarks;
 mod commands;
 mod dto;
 mod events;
-// The store's write/delete paths are consumed by the bookmark save/connect flow
-// (E4-S6); until then only the startup availability probe reads it, so the rest
-// of the API is not yet called from non-test code.
-#[allow(dead_code)]
 mod secrets;
 mod state;
 
@@ -21,6 +18,7 @@ use std::sync::Arc;
 use sftpapp_engine::{Engine, KnownHosts};
 use tauri::Manager;
 
+use bookmarks::BookmarkStore;
 use secrets::{SecretKind, SecretRef, SecretStore};
 use state::AppState;
 
@@ -102,7 +100,14 @@ pub fn run() {
             engine.load_persisted_queue(&queue_path);
             engine.set_queue_persistence(queue_path);
 
-            let state = AppState::new(engine, build_secret_store());
+            let bookmarks = BookmarkStore::load(
+                app.path()
+                    .app_config_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir())
+                    .join("bookmarks.json"),
+            );
+
+            let state = AppState::new(engine, build_secret_store(), bookmarks);
             // Start the transfer worker + progress aggregator inside the async
             // runtime (tokio::spawn needs a runtime context).
             let engine_for_workers = state.engine.clone();
@@ -117,6 +122,10 @@ pub fn run() {
             commands::session::disconnect,
             commands::session::respond_prompt,
             commands::session::subscribe_session_events,
+            commands::bookmark::list_bookmarks,
+            commands::bookmark::save_bookmark,
+            commands::bookmark::delete_bookmark,
+            commands::bookmark::connect_bookmark,
             commands::browse::list_dir,
             commands::browse::stat_entry,
             commands::fileops::rename_entry,

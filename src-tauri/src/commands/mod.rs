@@ -7,6 +7,7 @@
 //! - [`browse`]  — remote directory listing and stat
 //! - [`local`]   — local filesystem access for the local pane
 
+pub mod bookmark;
 pub mod browse;
 pub mod fileops;
 pub mod local;
