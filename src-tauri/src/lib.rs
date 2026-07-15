@@ -74,6 +74,7 @@ pub fn run() {
             commands::transfer::enqueue_transfers,
             commands::transfer::cancel_transfer,
             commands::transfer::clear_completed,
+            commands::transfer::set_concurrency,
             commands::transfer::subscribe_transfer_events,
         ])
         .run(tauri::generate_context!())

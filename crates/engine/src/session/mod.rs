@@ -80,6 +80,11 @@ impl Engine {
         self.queue.cancel(id);
     }
 
+    /// Set the maximum number of concurrently-running transfers (applies live).
+    pub fn set_concurrency(&self, n: usize) {
+        self.queue.set_concurrency(n);
+    }
+
     /// Remove completed/failed/canceled transfers from the queue.
     pub fn clear_completed(&self) {
         self.queue.clear_completed();

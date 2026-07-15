@@ -43,6 +43,15 @@ pub async fn clear_completed(state: State<'_, AppState>) -> CmdResult<()> {
     Ok(())
 }
 
+/// Set the maximum number of concurrently-running transfers (applies live).
+///
+/// Arguments: `concurrency` — desired concurrency (clamped to at least 1).
+#[tauri::command]
+pub async fn set_concurrency(state: State<'_, AppState>, concurrency: usize) -> CmdResult<()> {
+    state.engine.set_concurrency(concurrency);
+    Ok(())
+}
+
 /// Subscribe to transfer progress/state events over a Tauri channel.
 ///
 /// Arguments: `channel` — the webview channel to stream [`TransferEventDto`]s to.

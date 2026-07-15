@@ -147,7 +147,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 - [x] **E3-S1 — Per-session SFTP channel pool** (M)
   - Do: `session/pool.rs`: 1 reserved interactive channel (browsing/ops) + up to N transfer channels (default 4, lazily opened, round-robin checkout). Transfers must never borrow the interactive channel.
   - Accept: integration test: directory listing stays fast (<500 ms) while 4 bulk transfers saturate; pool reuses channels.
-- [ ] **E3-S2 — Scheduler + worker pool** (M)
+- [x] **E3-S2 — Scheduler + worker pool** (M)
   - Do: `transfer/worker.rs`: scheduler task + global `Semaphore` (default 3 concurrent files, runtime-changeable via `set_concurrency`) + per-session cap = pool size. Fair-ish FIFO.
   - Accept: engine tests: concurrency respected, `set_concurrency` applies live.
 - [ ] **E3-S3 — Retry policy + error classification wiring** (S)

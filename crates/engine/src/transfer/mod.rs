@@ -17,7 +17,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::{broadcast, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -26,6 +26,53 @@ use crate::session::Session;
 
 /// Identifies a transfer.
 pub type TransferId = Uuid;
+
+/// Default number of concurrently-running transfers.
+const DEFAULT_CONCURRENCY: usize = 3;
+
+/// A live-adjustable concurrency limiter (a semaphore whose permit count can be
+/// raised or lowered at runtime).
+pub(crate) struct Concurrency {
+    sem: Arc<Semaphore>,
+    current: Mutex<usize>,
+}
+
+impl Concurrency {
+    /// Create a limiter with `n` permits.
+    fn new(n: usize) -> Self {
+        Concurrency {
+            sem: Arc::new(Semaphore::new(n)),
+            current: Mutex::new(n),
+        }
+    }
+
+    /// Acquire one slot, waiting if the limit is reached.
+    async fn acquire(&self) -> OwnedSemaphorePermit {
+        self.sem
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("concurrency semaphore closed")
+    }
+
+    /// Change the concurrency limit live. Increases add permits immediately;
+    /// decreases take effect as in-flight transfers finish.
+    fn set(&self, n: usize) {
+        let mut current = self.current.lock().unwrap();
+        if n > *current {
+            self.sem.add_permits(n - *current);
+        } else if n < *current {
+            let diff = (*current - n) as u32;
+            let sem = self.sem.clone();
+            tokio::spawn(async move {
+                if let Ok(permits) = sem.acquire_many_owned(diff).await {
+                    permits.forget();
+                }
+            });
+        }
+        *current = n;
+    }
+}
 
 /// Transfer direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +149,7 @@ pub(crate) struct QueueShared {
     pub notify: Notify,
     pub sessions: Arc<DashMap<SessionId, Arc<Session>>>,
     pub events: broadcast::Sender<EngineEvent>,
+    pub concurrency: Concurrency,
 }
 
 impl QueueShared {
@@ -137,6 +185,7 @@ impl TransferQueue {
                 notify: Notify::new(),
                 sessions,
                 events,
+                concurrency: Concurrency::new(DEFAULT_CONCURRENCY),
             }),
         }
     }
@@ -197,10 +246,41 @@ impl TransferQueue {
         self.shared.items.get(&id).map(|e| e.clone())
     }
 
+    /// Set the maximum number of concurrently-running transfers (applies live).
+    pub fn set_concurrency(&self, n: usize) {
+        self.shared.concurrency.set(n.max(1));
+    }
+
     /// Remove all terminal (done/failed/canceled) items.
     pub fn clear_completed(&self) {
         self.shared
             .items
             .retain(|_, item| !item.state().is_terminal());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Concurrency;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn concurrency_limits_and_adjusts_live() {
+        let c = Concurrency::new(2);
+        let _p1 = c.acquire().await;
+        let _p2 = c.acquire().await;
+
+        // A third acquire blocks at the limit.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), c.acquire())
+                .await
+                .is_err(),
+            "third acquire should block at limit 2"
+        );
+
+        // Raising the limit unblocks a waiter immediately.
+        c.set(3);
+        let p3 = tokio::time::timeout(Duration::from_millis(200), c.acquire()).await;
+        assert!(p3.is_ok(), "acquire should succeed after raising the limit");
     }
 }

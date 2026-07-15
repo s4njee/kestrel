@@ -191,3 +191,47 @@ async fn transfer_channels_pool_and_stay_separate_from_interactive() {
     let _c3 = session.checkout_transfer_channel().await.unwrap();
     assert_eq!(session.pool().idle_len(), 1);
 }
+
+#[tokio::test]
+async fn multiple_concurrent_transfers_all_complete() {
+    let server = support::start_password_server("u", "p").await;
+    for i in 0..5 {
+        std::fs::write(server.root().join(format!("f{i}.bin")), vec![i as u8; 50_000]).unwrap();
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.spawn_transfer_workers();
+    engine.set_concurrency(3);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let mut requests = Vec::new();
+    for i in 0..5 {
+        requests.push(TransferRequest {
+            session_id: id,
+            direction: Direction::Download,
+            src: format!("/f{i}.bin"),
+            dest: dir.path().join(format!("out{i}.bin")).to_string_lossy().into_owned(),
+            size: 50_000,
+        });
+    }
+    let ids = engine.enqueue_transfers(requests);
+
+    // All five must reach Done.
+    let mut done = std::collections::HashSet::new();
+    while done.len() < ids.len() {
+        if let Ok(EngineEvent::TransferStateChanged { id, state, .. }) = events.recv().await {
+            if ids.contains(&id) && state == TransferState::Done {
+                done.insert(id);
+            }
+        }
+    }
+    for i in 0..5 {
+        let out = dir.path().join(format!("out{i}.bin"));
+        assert_eq!(tokio::fs::read(&out).await.unwrap(), vec![i as u8; 50_000]);
+    }
+}

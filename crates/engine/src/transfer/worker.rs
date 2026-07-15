@@ -32,14 +32,21 @@ async fn next_queued(shared: &QueueShared) -> TransferId {
     }
 }
 
-/// The single worker loop: process queued items sequentially.
+/// The scheduler loop: pop queued items and process them concurrently, bounded
+/// by the live concurrency limit. Each item runs in its own task.
 ///
 /// Arguments: `shared` — the shared queue state.
 /// Returns: never (runs for the process lifetime).
 pub(crate) async fn run_worker(shared: Arc<QueueShared>) {
     loop {
         let id = next_queued(&shared).await;
-        process(&shared, id).await;
+        // Acquire a global slot before starting; released when the task ends.
+        let permit = shared.concurrency.acquire().await;
+        let task_shared = shared.clone();
+        tokio::spawn(async move {
+            process(&task_shared, id).await;
+            drop(permit);
+        });
     }
 }
 
@@ -184,6 +191,7 @@ mod tests {
             notify: Notify::new(),
             sessions: Arc::new(dashmap::DashMap::new()),
             events: tx,
+            concurrency: crate::transfer::Concurrency::new(4),
         });
 
         let id = Uuid::new_v4();
