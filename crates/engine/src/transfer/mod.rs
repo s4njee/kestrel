@@ -13,8 +13,11 @@ pub mod retry;
 pub mod worker;
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
 
 use dashmap::DashMap;
 use tokio::sync::{broadcast, oneshot, Notify, OwnedSemaphorePermit, Semaphore};
@@ -75,7 +78,7 @@ impl Concurrency {
 }
 
 /// Transfer direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Direction {
     Upload,
     Download,
@@ -127,6 +130,16 @@ impl TransferState {
     pub fn is_active(self) -> bool {
         !self.is_terminal()
     }
+}
+
+/// A transfer as persisted to `queue.json` for crash recovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedTransfer {
+    pub session_id: SessionId,
+    pub direction: Direction,
+    pub src: String,
+    pub dest: String,
+    pub size: u64,
 }
 
 /// A request to enqueue one transfer.
@@ -232,6 +245,11 @@ pub(crate) struct QueueShared {
     pub batch_policy: DashMap<Uuid, ConflictResolution>,
     /// Oneshot channels for conflicts awaiting a user decision.
     pub conflicts: DashMap<TransferId, oneshot::Sender<ConflictResolution>>,
+    /// Path to persist the queue snapshot to (None = persistence disabled).
+    pub persist_path: Mutex<Option<PathBuf>>,
+    /// Signalled (coalesced) whenever the queue changes, to trigger a debounced
+    /// snapshot write.
+    pub persist_notify: Notify,
 }
 
 impl QueueShared {
@@ -243,6 +261,33 @@ impl QueueShared {
         let _ = self
             .events
             .send(EngineEvent::TransferStateChanged { id, state, error });
+        self.persist_notify.notify_one();
+    }
+
+    /// Write the active queue snapshot to the persistence path (atomic replace).
+    /// Called on the debounce tick; a no-op when persistence is disabled.
+    pub(crate) fn write_snapshot(&self) {
+        let Some(path) = self.persist_path.lock().unwrap().clone() else {
+            return;
+        };
+        let items: Vec<PersistedTransfer> = self
+            .items
+            .iter()
+            .filter(|e| e.state().is_active())
+            .map(|e| PersistedTransfer {
+                session_id: e.session_id,
+                direction: e.direction,
+                src: e.src.clone(),
+                dest: e.dest.clone(),
+                size: e.size,
+            })
+            .collect();
+        if let Ok(json) = serde_json::to_string_pretty(&items) {
+            let tmp = path.with_extension("json.tmp");
+            if std::fs::write(&tmp, json).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
+        }
     }
 
     /// Emit a conflict event for a transfer awaiting a user decision.
@@ -289,16 +334,60 @@ impl TransferQueue {
                 default_conflict: Mutex::new(Some(ConflictResolution::Overwrite)),
                 batch_policy: DashMap::new(),
                 conflicts: DashMap::new(),
+                persist_path: Mutex::new(None),
+                persist_notify: Notify::new(),
             }),
         }
     }
 
-    /// Spawn the worker and progress-aggregator tasks (requires a running tokio
-    /// runtime).
+    /// Spawn the worker, progress-aggregator, and persistence tasks (requires a
+    /// running tokio runtime).
     pub fn spawn_workers(&self) {
         let shared = self.shared.clone();
         tokio::spawn(worker::run_worker(shared.clone()));
-        tokio::spawn(worker::run_aggregator(shared));
+        tokio::spawn(worker::run_aggregator(shared.clone()));
+        tokio::spawn(worker::run_persistence(shared));
+    }
+
+    /// Enable queue persistence to `path`.
+    pub fn set_persist_path(&self, path: PathBuf) {
+        *self.shared.persist_path.lock().unwrap() = Some(path);
+    }
+
+    /// Write the queue snapshot immediately (bypassing the debounce).
+    pub fn flush_snapshot(&self) {
+        self.shared.write_snapshot();
+    }
+
+    /// Restore persisted transfers as Paused items (crash recovery).
+    ///
+    /// Arguments: `items` — the persisted transfers to restore.
+    /// Returns: the new transfer ids.
+    pub fn load_paused(&self, items: Vec<PersistedTransfer>) -> Vec<TransferId> {
+        let batch_id = Uuid::new_v4();
+        let mut ids = Vec::with_capacity(items.len());
+        for p in items {
+            let id = Uuid::new_v4();
+            let item = Arc::new(TransferItem {
+                id,
+                session_id: p.session_id,
+                direction: p.direction,
+                src: p.src,
+                effective_dest: Mutex::new(p.dest.clone()),
+                dest: p.dest,
+                size: p.size,
+                batch_id,
+                bytes_done: AtomicU64::new(0),
+                attempts: AtomicU32::new(0),
+                pause_requested: AtomicBool::new(false),
+                cancel: Mutex::new(CancellationToken::new()),
+                state: Mutex::new(TransferState::Paused),
+            });
+            self.shared.items.insert(id, item);
+            self.shared.emit_state(id, TransferState::Paused, None);
+            ids.push(id);
+        }
+        ids
     }
 
     /// Enqueue transfers, returning their new ids in request order. All items

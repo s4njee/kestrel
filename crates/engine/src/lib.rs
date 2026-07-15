@@ -38,5 +38,6 @@ pub use pathsafe::{safe_component, safe_join};
 pub use session::{Engine, Session};
 pub use transfer::io::{copy_file, CopyOptions};
 pub use transfer::{
-    ConflictResolution, Direction, TransferId, TransferItem, TransferRequest, TransferState,
+    ConflictResolution, Direction, PersistedTransfer, TransferId, TransferItem, TransferRequest,
+    TransferState,
 };

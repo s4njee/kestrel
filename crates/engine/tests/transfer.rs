@@ -509,3 +509,46 @@ async fn conflict_apply_to_all_covers_batch() {
         );
     }
 }
+
+#[tokio::test]
+async fn queue_persists_and_reloads_as_paused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("queue.json");
+
+    // First engine: enqueue (no workers → items stay active/queued), persist.
+    let engine1 = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("kh1"),
+        &[],
+    )));
+    engine1.set_queue_persistence(path.clone());
+    let sid = uuid::Uuid::new_v4();
+    engine1.enqueue_transfers(vec![
+        TransferRequest {
+            session_id: sid,
+            direction: Direction::Download,
+            src: "/a".to_string(),
+            dest: "/local/a".to_string(),
+            size: 10,
+        },
+        TransferRequest {
+            session_id: sid,
+            direction: Direction::Upload,
+            src: "/local/b".to_string(),
+            dest: "/b".to_string(),
+            size: 20,
+        },
+    ]);
+    engine1.flush_queue_persistence();
+    assert!(path.exists());
+
+    // Second engine: load the snapshot as Paused transfers.
+    let engine2 = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("kh2"),
+        &[],
+    )));
+    let ids = engine2.load_persisted_queue(&path);
+    assert_eq!(ids.len(), 2);
+    for id in ids {
+        assert_eq!(engine2.transfer_item(id).unwrap().state(), TransferState::Paused);
+    }
+}

@@ -236,6 +236,29 @@ impl Engine {
         self.queue.clear_completed();
     }
 
+    /// Enable queue persistence, writing snapshots to `path`.
+    pub fn set_queue_persistence(&self, path: std::path::PathBuf) {
+        self.queue.set_persist_path(path);
+    }
+
+    /// Write the queue snapshot immediately (bypassing the debounce).
+    pub fn flush_queue_persistence(&self) {
+        self.queue.flush_snapshot();
+    }
+
+    /// Load a persisted queue snapshot, restoring transfers as Paused.
+    ///
+    /// Arguments: `path` — the `queue.json` to read.
+    /// Returns: the restored transfer ids (empty if the file is missing/empty).
+    pub fn load_persisted_queue(&self, path: &std::path::Path) -> Vec<TransferId> {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Vec::new();
+        };
+        let items: Vec<crate::transfer::PersistedTransfer> =
+            serde_json::from_str(&text).unwrap_or_default();
+        self.queue.load_paused(items)
+    }
+
     /// Look up a transfer item.
     pub fn transfer_item(&self, id: TransferId) -> Option<Arc<TransferItem>> {
         self.queue.item(id)

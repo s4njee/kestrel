@@ -291,6 +291,19 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
     }
 }
 
+/// The persistence loop: on each change, debounce ~1s and write a snapshot.
+///
+/// Arguments: `shared` — the shared queue state.
+/// Returns: never.
+pub(crate) async fn run_persistence(shared: Arc<QueueShared>) {
+    loop {
+        shared.persist_notify.notified().await;
+        // Coalesce a burst of changes into a single write.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        shared.write_snapshot();
+    }
+}
+
 /// The progress aggregator loop: emit one batched update per tick.
 ///
 /// Arguments: `shared` — the shared queue state.
@@ -369,6 +382,8 @@ mod tests {
             default_conflict: Mutex::new(Some(ConflictResolution::Overwrite)),
             batch_policy: dashmap::DashMap::new(),
             conflicts: dashmap::DashMap::new(),
+            persist_path: Mutex::new(None),
+            persist_notify: Notify::new(),
         });
 
         let id = Uuid::new_v4();

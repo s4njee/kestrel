@@ -52,6 +52,18 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let engine = Engine::new(build_known_hosts(app));
+
+            // Queue persistence: restore any snapshot, then persist future
+            // changes to queue.json in the app data dir.
+            let app_data = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
+            let _ = std::fs::create_dir_all(&app_data);
+            let queue_path = app_data.join("queue.json");
+            engine.load_persisted_queue(&queue_path);
+            engine.set_queue_persistence(queue_path);
+
             let state = AppState::new(engine);
             // Start the transfer worker + progress aggregator inside the async
             // runtime (tokio::spawn needs a runtime context).
