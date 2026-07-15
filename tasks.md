@@ -15,6 +15,7 @@
 A greenfield, Cyberduck-class desktop file-transfer app. **v1 protocol: SFTP only** (SSH File Transfer Protocol), but all remote access goes through a protocol-agnostic trait so FTP/WebDAV/S3 can be added later without redesign.
 
 Locked decisions (do not relitigate):
+
 - **Stack**: Tauri v2 (Rust backend) + Svelte 5 with runes + SvelteKit in static SPA mode (`adapter-static`, `ssr = false`); TypeScript strict; pnpm.
 - **Platforms**: macOS, Windows, Linux from day one.
 - **UI**: dual-pane — local filesystem pane + remote pane side by side (FileZilla style), drag-and-drop between panes, transfer queue docked at the bottom.
@@ -24,17 +25,17 @@ Locked decisions (do not relitigate):
 
 ### Dependencies (versions verified 2026-07-14 against crates.io / npm)
 
-| Dependency | Version | Role |
-|---|---|---|
-| tauri / @tauri-apps/cli / @tauri-apps/api | 2.11.x | shell; plugins: dialog, opener, updater, window-state, single-instance |
-| russh | 0.62.2 | pure-Rust async SSH (tokio) |
-| russh-sftp | 2.3.0 | SFTP v3 client (+ server side, used for tests) |
-| keyring | 4.1.5 | OS credential stores; features: `apple-native`, `windows-native`, `sync-secret-service` |
-| notify | 8.2.0 | local FS watching |
-| Svelte / SvelteKit | 5.56 / 2.69 | runes for state — no state library |
-| @tanstack/svelte-virtual | 3.13.32 | virtualized file lists |
-| vitest / @testing-library/svelte / svelte-check | 4.1 / 5.4 / 4.7 | frontend tests + typecheck |
-| prettier-plugin-svelte / eslint-plugin-svelte | 4.1 / 3.20 | format / lint |
+| Dependency                                      | Version         | Role                                                                                    |
+| ----------------------------------------------- | --------------- | --------------------------------------------------------------------------------------- |
+| tauri / @tauri-apps/cli / @tauri-apps/api       | 2.11.x          | shell; plugins: dialog, opener, updater, window-state, single-instance                  |
+| russh                                           | 0.62.2          | pure-Rust async SSH (tokio)                                                             |
+| russh-sftp                                      | 2.3.0           | SFTP v3 client (+ server side, used for tests)                                          |
+| keyring                                         | 4.1.5           | OS credential stores; features: `apple-native`, `windows-native`, `sync-secret-service` |
+| notify                                          | 8.2.0           | local FS watching                                                                       |
+| Svelte / SvelteKit                              | 5.56 / 2.69     | runes for state — no state library                                                      |
+| @tanstack/svelte-virtual                        | 3.13.32         | virtualized file lists                                                                  |
+| vitest / @testing-library/svelte / svelte-check | 4.1 / 5.4 / 4.7 | frontend tests + typecheck                                                              |
+| prettier-plugin-svelte / eslint-plugin-svelte   | 4.1 / 3.20      | format / lint                                                                           |
 
 Rust also: tokio, tokio-util (CancellationToken), async-trait, serde, serde_json, thiserror, tracing, zeroize, uuid, dashmap. Pin exact versions of russh/russh-sftp in the workspace root (0.x churn risk).
 
@@ -62,7 +63,7 @@ Goal: a running empty shell on all 3 OSes + workspace + CI. No SSH yet.
 - [x] **E0-S2 — Cargo workspace + engine crate** (S)
   - Do: `cargo new crates/engine --lib --name sftpapp-engine`. Root `Cargo.toml`: `[workspace] members = ["src-tauri", "crates/engine"]`, `resolver = "2"`, shared `[workspace.dependencies]` for the Rust deps table above (exact-pin russh = "=0.62.2", russh-sftp = "=2.3.0"). Make `src-tauri` consume `sftpapp-engine` via workspace path dep. Engine gets module stubs per Appendix A tree with `todo!()`-free placeholder types and one real unit test (e.g. error classify).
   - Accept: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` pass; `pnpm tauri dev` still launches.
-- [ ] **E0-S3 — Frontend tooling** (S)
+- [x] **E0-S3 — Frontend tooling** (S)
   - Do: add prettier + prettier-plugin-svelte, eslint + eslint-plugin-svelte (flat config), vitest + @testing-library/svelte + jsdom. Package scripts: `check` (svelte-check), `lint` (eslint + prettier --check), `format`, `test` (vitest run). TS strict on. One trivial component test to prove the harness.
   - Accept: all four scripts pass locally.
 - [ ] **E0-S4 — Dual-pane shell UI skeleton** (M)
@@ -93,9 +94,9 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
   - Do: `session/session.rs`: connect via russh (`client::connect`), `Handler::check_server_key` → hostkey lookup → if Unknown/Changed, emit a prompt through an engine callback channel and await the decision (oneshot). Auth ladder: try key file (`russh::keys::load_secret_key`, passphrase via prompt callback if encrypted) then password (prompt callback). Open ONE sftp subsystem channel (the interactive channel) → `SftpFs` handle. `SessionManager` (`DashMap<SessionId, Session>`) with connect/disconnect. `events.rs`: `EngineEvent` broadcast (SessionConnected/Disconnected, prompts).
   - Accept: integration test against E1-S7's in-process server: password connect, wrong password fails cleanly, TOFU Unknown→accept→Known on reconnect, Changed→hard error.
 - [ ] **E1-S5 — `SftpFs`: list/stat/read_link** (M)
-  - Do: `fs/sftp.rs` wrapping a russh-sftp client channel; map attrs → `DirEntry`/`Metadata` (permissions, mtime, size, symlink targets via `read_link`). Leave write-side methods `unimplemented!` until E2-S1 *or* implement now if trivial — your call, note it.
+  - Do: `fs/sftp.rs` wrapping a russh-sftp client channel; map attrs → `DirEntry`/`Metadata` (permissions, mtime, size, symlink targets via `read_link`). Leave write-side methods `unimplemented!` until E2-S1 _or_ implement now if trivial — your call, note it.
   - Accept: integration tests (in-process server): list dir with files/dirs/symlinks/unicode names; stat; large dir (1000 entries) returns complete.
-- [ ] **E1-S6 — In-process SFTP test server** (M) — *build alongside E1-S4/S5; listed separately for clarity*
+- [ ] **E1-S6 — In-process SFTP test server** (M) — _build alongside E1-S4/S5; listed separately for clarity_
   - Do: `crates/engine/tests/support/`: russh server-side + russh-sftp server subsystem, backed by a tempdir; configurable auth (password map, authorized key) and a fixed host key. Runs on a random localhost port per test.
   - Accept: used by E1-S4/S5 tests; `cargo test --workspace` needs no network/Docker.
 - [ ] **E1-S7 — Tauri shell: state, session commands, prompt plumbing** (M)
@@ -165,7 +166,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
   - Do: snapshot pending/paused/failed items to `queue.json` in `app_data_dir` (debounced 1 s); load on startup as `Paused`.
   - Accept: engine test: snapshot→reload roundtrip; manual: restart app mid-queue, items reappear paused and resume correctly.
 - [ ] **E3-S8 — Drag & drop (both kinds)** (M)
-  - Do: (a) between panes: HTML5 DnD on rows/table body, `dataTransfer` JSON `{sourcePane, sessionId, paths[]}` → enqueue into target pane cwd; drop-target highlight. (b) OS → window: Tauri `onDragDropEvent` absolute paths; over remote pane → enqueue uploads. (Note: with Tauri DnD enabled, HTML5 *file*-drop won't fire — expected; element DnD unaffected.)
+  - Do: (a) between panes: HTML5 DnD on rows/table body, `dataTransfer` JSON `{sourcePane, sessionId, paths[]}` → enqueue into target pane cwd; drop-target highlight. (b) OS → window: Tauri `onDragDropEvent` absolute paths; over remote pane → enqueue uploads. (Note: with Tauri DnD enabled, HTML5 _file_-drop won't fire — expected; element DnD unaffected.)
   - Accept: manual both kinds; store-level tests for the enqueue mapping.
 - [ ] **E3-S9 — Session supervisor + auto-reconnect** (M)
   - Do: supervisor task per session: detect disconnect, emit `connectionState`, auto-reconnect with backoff (reuse retry policy), re-auth using stored method (re-prompt only if needed), rebuild pool; in-flight items already retry via E3-S3. UI: reconnecting banner in remote pane.
@@ -288,14 +289,32 @@ Session: `connect`, `disconnect`, `respond_prompt(prompt_id, reply)` · Browse: 
 
 ```ts
 type TransferEvent =
-  | { type: 'progressBatch'; items: { id: string; bytes: number; rateBps: number }[] }  // ≤10 Hz total
-  | { type: 'state'; id: string; state: TransferState; error?: ErrorDto }
-  | { type: 'conflict'; id: string; dest: string; existing: FileInfo; incoming: FileInfo };
+  | { type: "progressBatch"; items: { id: string; bytes: number; rateBps: number }[] } // ≤10 Hz total
+  | { type: "state"; id: string; state: TransferState; error?: ErrorDto }
+  | { type: "conflict"; id: string; dest: string; existing: FileInfo; incoming: FileInfo };
 type SessionEvent =
-  | { type: 'hostKeyPrompt'; promptId: string; host: string; keyType: string; fingerprintSha256: string; status: 'unknown' | 'CHANGED' }
-  | { type: 'authPrompt'; promptId: string; kind: 'passphrase' | 'keyboardInteractive'; instructions?: string; prompts: { text: string; echo: boolean }[] }
-  | { type: 'connectionState'; sessionId: string; state: 'connected' | 'reconnecting' | 'disconnected'; reason?: string }
-  | { type: 'localDirChanged'; path: string };
+  | {
+      type: "hostKeyPrompt";
+      promptId: string;
+      host: string;
+      keyType: string;
+      fingerprintSha256: string;
+      status: "unknown" | "CHANGED";
+    }
+  | {
+      type: "authPrompt";
+      promptId: string;
+      kind: "passphrase" | "keyboardInteractive";
+      instructions?: string;
+      prompts: { text: string; echo: boolean }[];
+    }
+  | {
+      type: "connectionState";
+      sessionId: string;
+      state: "connected" | "reconnecting" | "disconnected";
+      reason?: string;
+    }
+  | { type: "localDirChanged"; path: string };
 ```
 
 ### Frontend tree (`src/`)
@@ -328,12 +347,12 @@ lib/utils/{path,format}.ts
 
 ## Appendix C — Risk register (watch while implementing)
 
-| Risk | Response |
-|---|---|
-| russh-sftp sequential reads cap single-file throughput on high-RTT links | E2-S5 benchmark gates this; mitigation = overlapping requests via `RawSftpSession`, isolated in `transfer/io.rs` |
-| Windows agent: pipe absent unless OpenSSH Agent service running; Pageant per-session pipe | Probe → Pageant fallback → clear error (E4-S3) |
-| Linux Secret Service absent on minimal desktops | Graceful degradation path in E4-S5 |
-| known_hosts hashed `\|1\|` entries unsupported by russh helpers | E1-S3 implements HMAC-SHA1 matching itself if needed |
-| @tanstack/svelte-virtual + Svelte 5 friction | Hand-rolled runes virtual list fallback, isolated in FileTable (E1-S10) |
-| tauri-driver: no macOS e2e | Engine integration tests + manual checklist (E5-S6) |
-| russh 0.x API churn | Exact-pin versions; russh types confined to `fs/sftp.rs`, `session/`, `auth.rs` |
+| Risk                                                                                      | Response                                                                                                         |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| russh-sftp sequential reads cap single-file throughput on high-RTT links                  | E2-S5 benchmark gates this; mitigation = overlapping requests via `RawSftpSession`, isolated in `transfer/io.rs` |
+| Windows agent: pipe absent unless OpenSSH Agent service running; Pageant per-session pipe | Probe → Pageant fallback → clear error (E4-S3)                                                                   |
+| Linux Secret Service absent on minimal desktops                                           | Graceful degradation path in E4-S5                                                                               |
+| known_hosts hashed `\|1\|` entries unsupported by russh helpers                           | E1-S3 implements HMAC-SHA1 matching itself if needed                                                             |
+| @tanstack/svelte-virtual + Svelte 5 friction                                              | Hand-rolled runes virtual list fallback, isolated in FileTable (E1-S10)                                          |
+| tauri-driver: no macOS e2e                                                                | Engine integration tests + manual checklist (E5-S6)                                                              |
+| russh 0.x API churn                                                                       | Exact-pin versions; russh types confined to `fs/sftp.rs`, `session/`, `auth.rs`                                  |

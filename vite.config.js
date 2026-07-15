@@ -1,12 +1,21 @@
-import { defineConfig } from "vite";
+// vite.config.js — Vite + Vitest configuration for the sftpapp frontend.
+//
+// Serves the SvelteKit SPA in dev (fixed port 1420 that Tauri attaches to) and
+// configures Vitest for unit/component tests. The `svelteTesting()` plugin +
+// jsdom environment let @testing-library/svelte mount Svelte 5 components in
+// tests. `defineConfig` comes from vitest/config so the `test` block typechecks.
+
+/// <reference types="vitest/config" />
+import { defineConfig } from "vitest/config";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { svelteTesting } from "@testing-library/svelte/vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [sveltekit()],
+  plugins: [sveltekit(), svelteTesting()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -28,5 +37,13 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+  },
+
+  // Vitest: jsdom for component tests; shared setup registers jest-dom matchers.
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./vitest-setup.ts"],
+    include: ["src/**/*.{test,spec}.{js,ts}"],
   },
 }));
