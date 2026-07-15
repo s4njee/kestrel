@@ -75,6 +75,28 @@ pub async fn subscribe_session_events(
     state: State<'_, AppState>,
     channel: Channel<SessionEventDto>,
 ) -> CmdResult<()> {
+    // Forward the local FS watcher's debounced changes on the same channel. The
+    // receiver is taken once (subscribe runs a single time at app start); a
+    // dedicated thread bridges its blocking `recv` to the channel.
+    if let Some(watch_rx) = state
+        .watch_events
+        .lock()
+        .expect("watch_events mutex poisoned")
+        .take()
+    {
+        let watch_channel = channel.clone();
+        std::thread::spawn(move || {
+            while let Ok(path) = watch_rx.recv() {
+                let dto = SessionEventDto::LocalDirChanged {
+                    path: path.to_string_lossy().into_owned(),
+                };
+                if watch_channel.send(dto).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
     let mut rx = state.engine.subscribe();
     tauri::async_runtime::spawn(async move {
         while let Ok(event) = rx.recv().await {

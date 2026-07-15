@@ -15,6 +15,21 @@ import { prompts } from "$lib/stores/prompts.svelte";
 import { transfers } from "$lib/stores/transfers.svelte";
 import { conflicts } from "$lib/stores/conflicts.svelte";
 
+/** Handler invoked when the watched local directory changes (set by the shell). */
+let localDirChangedHandler: ((path: string) => void) | null = null;
+
+/**
+ * Register the local-directory-change handler.
+ *
+ * The reload is a side-effecting IPC call owned by the shell (`+page`), so it is
+ * injected here rather than performed in this routing module.
+ *
+ * @param handler - called with the changed directory path, or null to clear.
+ */
+export function setLocalDirChangedHandler(handler: ((path: string) => void) | null): void {
+  localDirChangedHandler = handler;
+}
+
 /**
  * Dispatch a single session event into the stores.
  *
@@ -30,6 +45,9 @@ export function routeSessionEvent(event: SessionEvent): void {
       break;
     case "authPrompt":
       prompts.setAuthPrompt(event);
+      break;
+    case "localDirChanged":
+      localDirChangedHandler?.(event.path);
       break;
   }
 }

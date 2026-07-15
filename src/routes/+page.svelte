@@ -15,13 +15,14 @@
   import { prompts } from "$lib/stores/prompts.svelte";
   import { bookmarks } from "$lib/stores/bookmarks.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
-  import { initSessionEvents } from "$lib/ipc/events";
+  import { initSessionEvents, setLocalDirChangedHandler } from "$lib/ipc/events";
   import { respondPrompt } from "$lib/ipc/commands";
   import {
     disconnect as disconnectCmd,
     connectBookmark,
     localHomeDir,
     localListDir,
+    watchLocalDir,
     listDir,
     enqueueTransfers,
     enqueueDirectory,
@@ -72,11 +73,13 @@
     active?.state === "reconnecting" ? "Connection lost — reconnecting…" : null,
   );
 
-  /** Load a local directory into the local pane. */
+  /** Load a local directory into the local pane, and watch it for changes. */
   async function loadLocal(path: string): Promise<void> {
     localPane.startLoad(path);
     try {
       localPane.setEntries(await localListDir(path));
+      // Retarget the FS watcher onto the now-visible directory.
+      void watchLocalDir(path).catch(() => {});
     } catch (e) {
       localPane.setError(String(e));
     }
@@ -100,6 +103,10 @@
     // Guard: browser dev preview has no Tauri runtime.
     try {
       void initSessionEvents();
+      // Auto-refresh the local pane when its directory changes externally.
+      setLocalDirChangedHandler((path) => {
+        if (localPane.path === path) void loadLocal(path);
+      });
       bookmarks.load().catch(() => {});
       localHomeDir()
         .then(loadLocal)
@@ -114,7 +121,10 @@
     } catch {
       /* no Tauri runtime */
     }
-    return () => unlistenDrop?.();
+    return () => {
+      setLocalDirChangedHandler(null);
+      unlistenDrop?.();
+    };
   });
 
   /** Enqueue uploads for OS-dropped local file paths (to the remote pane). */

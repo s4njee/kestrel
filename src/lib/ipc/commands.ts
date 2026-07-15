@@ -131,7 +131,8 @@ export type SessionEvent =
       promptId: string;
       instructions: string;
       fields: { text: string; echo: boolean }[];
-    };
+    }
+  | { type: "localDirChanged"; path: string };
 
 /**
  * Connect and authenticate a session.
@@ -275,6 +276,17 @@ export function localHomeDir(): Promise<string> {
  */
 export function localListDir(path: string): Promise<DirEntry[]> {
   return invoke("local_list_dir", { path });
+}
+
+/**
+ * Watch a local directory for external changes (retargets on navigation).
+ *
+ * @param path - the directory the local pane is now showing.
+ * @returns a promise that resolves once watching; changes then arrive as
+ *   `localDirChanged` session events.
+ */
+export function watchLocalDir(path: string): Promise<void> {
+  return invoke("watch_local_dir", { path });
 }
 
 /**

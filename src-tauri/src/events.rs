@@ -37,6 +37,10 @@ pub enum SessionEventDto {
         instructions: String,
         fields: Vec<AuthFieldDto>,
     },
+    /// The watched local directory changed on disk; the pane should reload if it
+    /// is still showing `path`. Emitted by the local FS watcher, not the engine.
+    #[serde(rename_all = "camelCase")]
+    LocalDirChanged { path: String },
 }
 
 /// One field of a keyboard-interactive challenge (mirrors the TS shape).

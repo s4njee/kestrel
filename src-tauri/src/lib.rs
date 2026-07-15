@@ -15,7 +15,7 @@ mod state;
 
 use std::sync::Arc;
 
-use sftpapp_engine::{Engine, KnownHosts};
+use sftpapp_engine::{DirWatcher, Engine, KnownHosts, DEFAULT_DEBOUNCE};
 use tauri::Manager;
 
 use bookmarks::BookmarkStore;
@@ -107,7 +107,12 @@ pub fn run() {
                     .join("bookmarks.json"),
             );
 
-            let state = AppState::new(engine, build_secret_store(), bookmarks);
+            // Local pane FS watcher. If the platform watcher can't be created
+            // (rare), fall back to no watching rather than failing startup.
+            let (watcher, watch_rx) = DirWatcher::new(DEFAULT_DEBOUNCE)
+                .map_err(|e| format!("failed to create fs watcher: {e}"))?;
+
+            let state = AppState::new(engine, build_secret_store(), bookmarks, watcher, watch_rx);
             // Start the transfer worker + progress aggregator inside the async
             // runtime (tokio::spawn needs a runtime context).
             let engine_for_workers = state.engine.clone();
@@ -133,6 +138,7 @@ pub fn run() {
             commands::fileops::mkdir,
             commands::fileops::set_permissions,
             commands::local::local_home_dir,
+            commands::local::watch_local_dir,
             commands::local::local_list_dir,
             commands::local::local_rename,
             commands::local::local_delete,

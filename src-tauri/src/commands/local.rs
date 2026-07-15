@@ -3,11 +3,14 @@
 //! Goes through the engine's [`LocalFs`] so both panes share the `RemoteFs`
 //! interface. All I/O stays in Rust; only paths/metadata cross IPC.
 
+use std::path::PathBuf;
+
 use sftpapp_engine::{remove_recursive, EntryKind, LocalFs, RemoteFs};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
 use crate::commands::CmdResult;
 use crate::dto::DirEntryDto;
+use crate::state::AppState;
 
 /// The user's home directory (the local pane's default location).
 ///
@@ -16,6 +19,21 @@ use crate::dto::DirEntryDto;
 pub async fn local_home_dir(app: AppHandle) -> CmdResult<String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     Ok(home.to_string_lossy().into_owned())
+}
+
+/// Watch a local directory for external changes (retargets on navigation).
+///
+/// Arguments: `path` — the directory the local pane is now showing.
+/// Returns: `()` once watching; subsequent external changes emit a
+/// `localDirChanged` session event so the pane auto-refreshes.
+#[tauri::command]
+pub async fn watch_local_dir(state: State<'_, AppState>, path: String) -> CmdResult<()> {
+    state
+        .watcher
+        .lock()
+        .expect("watcher mutex poisoned")
+        .watch(PathBuf::from(path))
+        .map_err(|e| e.to_string())
 }
 
 /// List a local directory.
