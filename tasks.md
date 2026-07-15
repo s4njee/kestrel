@@ -87,7 +87,7 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 - [x] **E1-S2 — `LocalFs`** (S)
   - Do: `fs/local.rs` implementing `RemoteFs` over `tokio::fs` (list/stat/open_read(offset via seek)/open_write/rename/remove_file/remove_dir/mkdir/set_permissions(unix-only; no-op with capability flag off on Windows)/read_link).
   - Accept: tempdir-based unit tests incl. offset read, resume write, unicode names.
-- [ ] **E1-S3 — Host-key store + TOFU decisions** (M)
+- [x] **E1-S3 — Host-key store + TOFU decisions** (M)
   - Do: `hostkey.rs`: parse/append OpenSSH `known_hosts` (app copy in `app_data_dir`, plus user's `~/.ssh/known_hosts` read-only); lookup result `Known | Unknown | Changed{old_fingerprint}`; SHA-256 fingerprint formatting (OpenSSH base64 style). **Must support hashed `|1|` entries** (HMAC-SHA1 matching — implement if russh helpers don't cover it; verify with a hashed fixture).
   - Accept: fixture tests: plain host, `[host]:port`, hashed entry, changed key detection; append writes valid lines that OpenSSH `ssh-keygen -F` would match.
 - [ ] **E1-S4 — SSH session + auth ladder (password, key file)** (L)
