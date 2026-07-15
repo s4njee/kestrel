@@ -12,6 +12,7 @@ pub mod browse;
 pub mod fileops;
 pub mod local;
 pub mod session;
+pub mod settings;
 pub mod transfer;
 
 /// Standard command error type: a message string the webview can surface.

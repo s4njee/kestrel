@@ -11,6 +11,7 @@ mod commands;
 mod dto;
 mod events;
 mod secrets;
+mod settings;
 mod state;
 
 use std::sync::Arc;
@@ -20,6 +21,7 @@ use tauri::Manager;
 
 use bookmarks::BookmarkStore;
 use secrets::{SecretKind, SecretRef, SecretStore};
+use settings::SettingsStore;
 use state::AppState;
 
 /// Build the credential store, preferring the OS keychain.
@@ -100,19 +102,30 @@ pub fn run() {
             engine.load_persisted_queue(&queue_path);
             engine.set_queue_persistence(queue_path);
 
-            let bookmarks = BookmarkStore::load(
-                app.path()
-                    .app_config_dir()
-                    .unwrap_or_else(|_| std::env::temp_dir())
-                    .join("bookmarks.json"),
-            );
+            let config_dir = app
+                .path()
+                .app_config_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
+            let bookmarks = BookmarkStore::load(config_dir.join("bookmarks.json"));
+            let settings = SettingsStore::load(config_dir.join("settings.json"));
+
+            // Apply persisted runtime settings (concurrency, conflict policy)
+            // before any transfers start.
+            commands::settings::apply_runtime(&engine, &settings.get());
 
             // Local pane FS watcher. If the platform watcher can't be created
             // (rare), fall back to no watching rather than failing startup.
             let (watcher, watch_rx) = DirWatcher::new(DEFAULT_DEBOUNCE)
                 .map_err(|e| format!("failed to create fs watcher: {e}"))?;
 
-            let state = AppState::new(engine, build_secret_store(), bookmarks, watcher, watch_rx);
+            let state = AppState::new(
+                engine,
+                build_secret_store(),
+                bookmarks,
+                settings,
+                watcher,
+                watch_rx,
+            );
             // Start the transfer worker + progress aggregator inside the async
             // runtime (tokio::spawn needs a runtime context).
             let engine_for_workers = state.engine.clone();
@@ -131,6 +144,8 @@ pub fn run() {
             commands::bookmark::save_bookmark,
             commands::bookmark::delete_bookmark,
             commands::bookmark::connect_bookmark,
+            commands::settings::get_settings,
+            commands::settings::save_settings,
             commands::browse::list_dir,
             commands::browse::stat_entry,
             commands::fileops::rename_entry,

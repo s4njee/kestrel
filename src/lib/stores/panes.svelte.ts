@@ -8,6 +8,7 @@
 import { SvelteSet } from "svelte/reactivity";
 import type { DirEntry } from "$lib/ipc/commands";
 import type { PaneKind } from "$lib/types";
+import { settings } from "./settings.svelte";
 
 /** Column a pane can be sorted by. */
 export type SortKey = "name" | "size" | "mtime" | "permissions";
@@ -72,9 +73,15 @@ export class PaneStore {
     return this.#selected;
   }
 
-  /** Entries in the current sort order (directories first). */
+  /**
+   * Entries in the current sort order (directories first). Hidden (dot) files
+   * are omitted unless the "show hidden files" setting is on.
+   */
   get sortedEntries(): DirEntry[] {
-    const sorted = [...this.#entries].sort((a, b) => compareEntries(a, b, this.#sortKey));
+    const visible = settings.showHidden
+      ? this.#entries
+      : this.#entries.filter((e) => !e.name.startsWith("."));
+    const sorted = [...visible].sort((a, b) => compareEntries(a, b, this.#sortKey));
     if (!this.#sortAsc) sorted.reverse();
     return sorted;
   }

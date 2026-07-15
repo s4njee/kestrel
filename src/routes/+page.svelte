@@ -14,6 +14,7 @@
   import { transfers } from "$lib/stores/transfers.svelte";
   import { prompts } from "$lib/stores/prompts.svelte";
   import { bookmarks } from "$lib/stores/bookmarks.svelte";
+  import { settings } from "$lib/stores/settings.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents, setLocalDirChangedHandler } from "$lib/ipc/events";
   import { respondPrompt } from "$lib/ipc/commands";
@@ -50,11 +51,13 @@
   import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
   import BookmarkManager from "$lib/components/dialogs/BookmarkManager.svelte";
+  import SettingsDialog from "$lib/components/dialogs/SettingsDialog.svelte";
   import HostKeyDialog from "$lib/components/dialogs/HostKeyDialog.svelte";
   import ConflictDialog from "$lib/components/dialogs/ConflictDialog.svelte";
   import PromptDialog from "$lib/components/dialogs/PromptDialog.svelte";
 
   let showConnect = $state(false);
+  let showSettings = $state(false);
   // The bookmark prefilling the connect dialog: null = a fresh connection.
   let connectSeed = $state<Bookmark | null>(null);
 
@@ -108,7 +111,12 @@
         if (localPane.path === path) void loadLocal(path);
       });
       bookmarks.load().catch(() => {});
-      localHomeDir()
+      // Load settings, then open the local pane at the pinned default dir (or
+      // the home directory when none is set).
+      settings
+        .load()
+        .then(() => settings.defaultLocalDir ?? localHomeDir())
+        .catch(() => localHomeDir())
         .then(loadLocal)
         .catch(() => {});
       // OS file drops onto the window upload to the remote pane.
@@ -402,6 +410,7 @@
     {onConnect}
     onUpload={upload}
     onDownload={download}
+    onSettings={() => (showSettings = true)}
   />
 
   <main class="workspace">
@@ -447,6 +456,9 @@
 
 {#if showConnect}
   <ConnectDialog {onConnected} initial={connectSeed} onClose={() => (showConnect = false)} />
+{/if}
+{#if showSettings}
+  <SettingsDialog onClose={() => (showSettings = false)} />
 {/if}
 <HostKeyDialog />
 <ConflictDialog />

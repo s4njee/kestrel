@@ -9,6 +9,7 @@
   Props:
   - connected: boolean          — whether a remote session is active.
   - onConnect?: () => void      — invoked when Connect/Disconnect is clicked.
+  - onSettings?: () => void     — invoked when Settings is clicked.
 -->
 <script lang="ts">
   interface Props {
@@ -18,6 +19,7 @@
     onConnect?: () => void;
     onUpload?: () => void;
     onDownload?: () => void;
+    onSettings?: () => void;
   }
 
   let {
@@ -27,6 +29,7 @@
     onConnect,
     onUpload,
     onDownload,
+    onSettings,
   }: Props = $props();
 </script>
 
@@ -47,6 +50,7 @@
       title="Download selected remote files to the local folder (Cmd/Ctrl+D)"
       onclick={() => onDownload?.()}>Download ↓</button
     >
+    <button title="Settings" onclick={() => onSettings?.()}>Settings</button>
   </div>
 </header>
 

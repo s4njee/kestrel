@@ -62,6 +62,18 @@ export interface Bookmark {
 /** The nil UUID used to mark an unsaved (new) bookmark. */
 export const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
+/** Default conflict resolution stored in settings. */
+export type DefaultConflict = "ask" | "overwrite" | "skip" | "rename" | "resume";
+
+/** User settings (mirrors `Settings`). */
+export interface Settings {
+  /** Max concurrently-running transfers (1–8). */
+  concurrency: number;
+  defaultConflict: DefaultConflict;
+  defaultLocalDir: string | null;
+  showHidden: boolean;
+}
+
 /** A reply to a prompt (mirrors `PromptReplyDto`). */
 export type PromptReply =
   { type: "hostKey"; accept: boolean } | { type: "keyboardInteractive"; responses: string[] };
@@ -276,6 +288,25 @@ export function localHomeDir(): Promise<string> {
  */
 export function localListDir(path: string): Promise<DirEntry[]> {
   return invoke("local_list_dir", { path });
+}
+
+/**
+ * Get the current user settings (defaults on first run).
+ *
+ * @returns the persisted settings.
+ */
+export function getSettings(): Promise<Settings> {
+  return invoke("get_settings");
+}
+
+/**
+ * Save settings; the backend applies concurrency + conflict policy live.
+ *
+ * @param settings - the new settings.
+ * @returns the stored (normalized) settings.
+ */
+export function saveSettings(settings: Settings): Promise<Settings> {
+  return invoke("save_settings", { settings });
 }
 
 /**
