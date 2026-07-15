@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use sftpapp_engine::{
     copy_file, AuthMethod, ConnectParams, CopyOptions, Direction, Engine, EngineEvent, KnownHosts,
-    LocalFs, PromptReply, Secret, SessionId, TransferId, TransferRequest, TransferState,
+    LocalFs, PromptReply, RemoteFs, Secret, SessionId, TransferId, TransferRequest, TransferState,
 };
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -159,4 +159,35 @@ async fn queue_cancel_marks_canceled() {
     engine.cancel_transfer(ids[0]);
     let state = await_terminal(&mut events, ids[0]).await;
     assert_eq!(state, TransferState::Canceled);
+}
+
+#[tokio::test]
+async fn transfer_channels_pool_and_stay_separate_from_interactive() {
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("a.txt"), b"x").unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    let id = connect(&engine, server.port).await;
+    let session = engine.session(id).unwrap();
+
+    // Check out two transfer channels concurrently; both are usable and
+    // separate from the interactive channel.
+    let c1 = session.checkout_transfer_channel().await.unwrap();
+    let c2 = session.checkout_transfer_channel().await.unwrap();
+    assert_eq!(c1.fs().list("/").await.unwrap().len(), 1);
+    assert_eq!(c2.fs().list("/").await.unwrap().len(), 1);
+    // Interactive listing still works while transfer channels are held.
+    assert_eq!(session.remote_fs().list("/").await.unwrap().len(), 1);
+    assert_eq!(session.pool().idle_len(), 0);
+
+    // Returned to the pool on drop, then reused.
+    drop(c1);
+    drop(c2);
+    assert_eq!(session.pool().idle_len(), 2);
+    let _c3 = session.checkout_transfer_channel().await.unwrap();
+    assert_eq!(session.pool().idle_len(), 1);
 }

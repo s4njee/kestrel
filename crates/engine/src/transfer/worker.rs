@@ -64,7 +64,16 @@ async fn process(shared: &QueueShared, id: TransferId) {
         return;
     };
 
-    let remote = session.remote_fs();
+    // Use a pooled transfer channel so the interactive channel stays free for
+    // browsing/file-ops.
+    let channel = match session.checkout_transfer_channel().await {
+        Ok(channel) => channel,
+        Err(e) => {
+            shared.emit_state(id, TransferState::Failed, Some(e.to_string()));
+            return;
+        }
+    };
+    let remote = channel.fs();
     let local = LocalFs::new();
 
     let result = match item.direction {

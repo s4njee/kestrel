@@ -144,7 +144,7 @@ Goal: single-file upload/download with live progress and cancel. Proves the whol
 
 Goal: production transfer engine — concurrency, retries, pause/resume, recursive trees, conflicts, persistence, DnD.
 
-- [ ] **E3-S1 — Per-session SFTP channel pool** (M)
+- [x] **E3-S1 — Per-session SFTP channel pool** (M)
   - Do: `session/pool.rs`: 1 reserved interactive channel (browsing/ops) + up to N transfer channels (default 4, lazily opened, round-robin checkout). Transfers must never borrow the interactive channel.
   - Accept: integration test: directory listing stays fast (<500 ms) while 4 bulk transfers saturate; pool reuses channels.
 - [ ] **E3-S2 — Scheduler + worker pool** (M)

@@ -79,9 +79,29 @@ fn hostkey_from_public(key: &PublicKey) -> Option<HostKey> {
     HostKey::from_openssh(&line)
 }
 
+/// A shared SSH connection handle; used to open additional SFTP channels for
+/// the transfer pool.
+pub(crate) type ClientHandle = Arc<Handle<ClientHandler>>;
+
+/// Open a fresh SFTP subsystem channel on an existing SSH connection.
+///
+/// Arguments: `handle` — the session's SSH handle.
+/// Returns: a ready [`SftpSession`] wrapped in an `Arc`.
+pub(crate) async fn open_transfer_channel(handle: &ClientHandle) -> Result<Arc<SftpSession>> {
+    let channel = handle.channel_open_session().await.map_err(map_russh)?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(map_russh)?;
+    let sftp = SftpSession::new(channel.into_stream())
+        .await
+        .map_err(map_sftp)?;
+    Ok(Arc::new(sftp))
+}
+
 /// russh client callback handler: owns the shared state needed to make a
 /// host-key trust decision during the handshake.
-struct ClientHandler {
+pub(crate) struct ClientHandler {
     host: String,
     port: u16,
     known_hosts: Arc<Mutex<KnownHosts>>,
@@ -138,15 +158,20 @@ impl russh::client::Handler for ClientHandler {
     }
 }
 
-/// A live, authenticated SSH session with one open SFTP channel.
+/// Default number of transfer channels per session.
+const DEFAULT_POOL_SIZE: usize = 4;
+
+/// A live, authenticated SSH session: one reserved interactive SFTP channel
+/// plus a pool of transfer channels.
 pub struct Session {
     pub id: SessionId,
     pub host: String,
     pub port: u16,
     pub username: String,
     // Keeps the SSH connection alive; dropping it disconnects.
-    _handle: Handle<ClientHandler>,
+    _handle: ClientHandle,
     sftp: Arc<SftpSession>,
+    pool: super::pool::ChannelPool,
 }
 
 impl Session {
@@ -157,12 +182,26 @@ impl Session {
         self.sftp.clone()
     }
 
-    /// A [`RemoteFs`](crate::fs::RemoteFs) view over the interactive channel.
+    /// A [`RemoteFs`](crate::fs::RemoteFs) view over the reserved interactive
+    /// channel (browsing/file-ops — never transfers).
     ///
-    /// Returns: an [`SftpFs`](crate::fs::sftp::SftpFs) sharing this session's
-    /// SFTP channel, so browsing/file-ops go through the common trait.
+    /// Returns: an [`SftpFs`](crate::fs::sftp::SftpFs) sharing the interactive
+    /// channel.
     pub fn remote_fs(&self) -> crate::fs::sftp::SftpFs {
         crate::fs::sftp::SftpFs::new(self.sftp.clone())
+    }
+
+    /// Check out a transfer channel from the pool (opened lazily up to the pool
+    /// size). Transfers use these so they never block the interactive channel.
+    ///
+    /// Returns: a [`PooledChannel`](super::pool::PooledChannel) guard.
+    pub async fn checkout_transfer_channel(&self) -> Result<super::pool::PooledChannel> {
+        self.pool.checkout().await
+    }
+
+    /// The channel pool (for tests/metrics).
+    pub fn pool(&self) -> &super::pool::ChannelPool {
+        &self.pool
     }
 }
 
@@ -225,14 +264,11 @@ pub async fn connect_session(
         return Err(EngineError::Auth("authentication failed".into()));
     }
 
-    let channel = handle.channel_open_session().await.map_err(map_russh)?;
-    channel
-        .request_subsystem(true, "sftp")
-        .await
-        .map_err(map_russh)?;
-    let sftp = SftpSession::new(channel.into_stream())
-        .await
-        .map_err(map_sftp)?;
+    // Share the connection so the pool can open more channels on it.
+    let handle = Arc::new(handle);
+    // Reserved interactive channel (browsing/file-ops).
+    let sftp = open_transfer_channel(&handle).await?;
+    let pool = super::pool::ChannelPool::new(handle.clone(), DEFAULT_POOL_SIZE);
 
     let id = Uuid::new_v4();
     let _ = events.send(EngineEvent::SessionConnected { session_id: id });
@@ -243,6 +279,7 @@ pub async fn connect_session(
         port: params.port,
         username: params.username,
         _handle: handle,
-        sftp: Arc::new(sftp),
+        sftp,
+        pool,
     })
 }
