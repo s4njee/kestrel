@@ -25,7 +25,9 @@
     type TransferDirection,
   } from "$lib/ipc/commands";
   import type { DirEntry } from "$lib/ipc/commands";
-  import { buildTransferRequests } from "$lib/transfer";
+  import type { PaneKind } from "$lib/types";
+  import { buildTransferRequests, dropDirection, uploadRequestsForPaths } from "$lib/transfer";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
   import Toolbar from "$lib/components/layout/Toolbar.svelte";
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
@@ -65,6 +67,8 @@
     }
   }
 
+  let unlistenDrop: (() => void) | undefined;
+
   onMount(() => {
     // Guard: browser dev preview has no Tauri runtime.
     try {
@@ -72,10 +76,37 @@
       localHomeDir()
         .then(loadLocal)
         .catch(() => {});
+      // OS file drops onto the window upload to the remote pane.
+      getCurrentWebview()
+        .onDragDropEvent((event) => {
+          if (event.payload.type === "drop") void onOsDrop(event.payload.paths);
+        })
+        .then((un) => (unlistenDrop = un))
+        .catch(() => {});
     } catch {
       /* no Tauri runtime */
     }
+    return () => unlistenDrop?.();
   });
+
+  /** Enqueue uploads for OS-dropped local file paths (to the remote pane). */
+  async function onOsDrop(paths: string[]): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id || !remotePane.path || paths.length === 0) return;
+    await enqueueTransfers(uploadRequestsForPaths(id, paths, remotePane.path));
+    ui.setTransferPanelExpanded(true);
+  }
+
+  /** Handle a cross-pane drag drop. */
+  async function onPaneDrop(source: PaneKind, target: PaneKind): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id) return;
+    const dir = dropDirection(source, target);
+    if (!dir) return;
+    const sourcePane = source === "local" ? localPane : remotePane;
+    const targetPane = target === "local" ? localPane : remotePane;
+    await runTransfers(dir, id, sourcePane.selectedEntries, targetPane.path);
+  }
 
   /** Toolbar Connect/Disconnect action. */
   async function onConnect(): Promise<void> {
@@ -183,6 +214,7 @@
           active={ui.activePane === "local"}
           onActivate={() => ui.setActivePane("local")}
           onNavigate={loadLocal}
+          onDrop={(src) => onPaneDrop(src, "local")}
         />
       {/snippet}
       {#snippet right()}
@@ -194,6 +226,7 @@
             : "Not connected. Use Connect… to open a session."}
           onActivate={() => ui.setActivePane("remote")}
           onNavigate={loadRemote}
+          onDrop={(src) => onPaneDrop(src, "remote")}
         />
       {/snippet}
     </SplitPane>

@@ -17,11 +17,13 @@
 <script lang="ts">
   import type { SvelteSet } from "svelte/reactivity";
   import type { DirEntry } from "$lib/ipc/commands";
+  import type { PaneKind } from "$lib/types";
   import type { SortKey } from "$lib/stores/panes.svelte";
   import { formatBytes, formatMtime } from "$lib/utils/format";
 
   interface Props {
     entries: DirEntry[];
+    paneKind: PaneKind;
     sortKey: SortKey;
     sortAsc: boolean;
     selected: SvelteSet<string>;
@@ -30,7 +32,14 @@
     onOpen: (entry: DirEntry) => void;
   }
 
-  let { entries, sortKey, sortAsc, selected, onSort, onSelect, onOpen }: Props = $props();
+  let { entries, paneKind, sortKey, sortAsc, selected, onSort, onSelect, onOpen }: Props = $props();
+
+  /** Start a cross-pane drag: ensure the row is selected, mark the source. */
+  function onDragStart(entry: DirEntry, event: DragEvent): void {
+    if (!selected.has(entry.name)) onSelect(entry.name, { ctrl: false, shift: false });
+    event.dataTransfer?.setData("application/x-sftp-source", paneKind);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+  }
 
   const ROW = 24;
   const OVERSCAN = 6;
@@ -93,11 +102,13 @@
           <button
             type="button"
             class="row"
+            draggable="true"
             aria-pressed={selected.has(entry.name)}
             class:selected={selected.has(entry.name)}
             style:height="{ROW}px"
             onclick={(e) => onRowClick(entry, e)}
             ondblclick={() => onOpen(entry)}
+            ondragstart={(e) => onDragStart(entry, e)}
           >
             <span class="col-name"><span class="icon">{icon(entry)}</span>{entry.name}</span>
             <span class="col-size">{entry.kind === "dir" ? "—" : formatBytes(entry.size)}</span>

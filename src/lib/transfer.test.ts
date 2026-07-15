@@ -1,7 +1,7 @@
 // transfer.test.ts — Tests for building transfer requests from a selection.
 
 import { describe, it, expect } from "vitest";
-import { buildTransferRequests } from "./transfer";
+import { buildTransferRequests, dropDirection, uploadRequestsForPaths } from "./transfer";
 import type { DirEntry } from "$lib/ipc/commands";
 
 function entry(name: string, path: string, kind: DirEntry["kind"], size = 0): DirEntry {
@@ -53,5 +53,38 @@ describe("buildTransferRequests", () => {
       dest: "/upload/photo.jpg",
       size: 100,
     });
+  });
+});
+
+describe("dropDirection", () => {
+  it("maps cross-pane drags to a direction", () => {
+    expect(dropDirection("local", "remote")).toBe("upload");
+    expect(dropDirection("remote", "local")).toBe("download");
+  });
+  it("returns null for same-pane drops", () => {
+    expect(dropDirection("local", "local")).toBeNull();
+    expect(dropDirection("remote", "remote")).toBeNull();
+  });
+});
+
+describe("uploadRequestsForPaths", () => {
+  it("builds upload requests into a remote dir", () => {
+    const reqs = uploadRequestsForPaths("s1", ["/Users/me/a.txt", "/Users/me/b.bin"], "/upload");
+    expect(reqs).toEqual([
+      {
+        sessionId: "s1",
+        direction: "upload",
+        src: "/Users/me/a.txt",
+        dest: "/upload/a.txt",
+        size: 0,
+      },
+      {
+        sessionId: "s1",
+        direction: "upload",
+        src: "/Users/me/b.bin",
+        dest: "/upload/b.bin",
+        size: 0,
+      },
+    ]);
   });
 });

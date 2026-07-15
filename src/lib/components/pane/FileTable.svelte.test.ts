@@ -13,6 +13,7 @@ function entry(name: string, kind: DirEntry["kind"] = "file"): DirEntry {
 function baseProps() {
   return {
     entries: [entry("a.txt"), entry("b.txt"), entry("c.txt")],
+    paneKind: "remote" as const,
     sortKey: "name" as const,
     sortAsc: true,
     selected: new SvelteSet<string>(),

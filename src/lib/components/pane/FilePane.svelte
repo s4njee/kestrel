@@ -16,6 +16,7 @@
 <script lang="ts">
   import type { PaneStore } from "$lib/stores/panes.svelte";
   import type { DirEntry } from "$lib/ipc/commands";
+  import type { PaneKind } from "$lib/types";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import FileTable from "./FileTable.svelte";
 
@@ -24,24 +25,49 @@
     active: boolean;
     onActivate: () => void;
     onNavigate: (path: string) => void;
+    onDrop?: (sourcePane: PaneKind) => void;
     emptyMessage?: string;
   }
 
-  let { pane, active, onActivate, onNavigate, emptyMessage = "Empty" }: Props = $props();
+  let { pane, active, onActivate, onNavigate, onDrop, emptyMessage = "Empty" }: Props = $props();
+
+  let dragOver = $state(false);
 
   /** Open an entry: directories navigate; files are a no-op for now. */
   function onOpen(entry: DirEntry): void {
     if (entry.kind === "dir") onNavigate(entry.path);
+  }
+
+  /** Allow dropping cross-pane drags onto this pane. */
+  function onDragOver(event: DragEvent): void {
+    if (event.dataTransfer?.types.includes("application/x-sftp-source")) {
+      event.preventDefault();
+      dragOver = true;
+    }
+  }
+
+  /** Handle a cross-pane drop: forward the source pane to the parent. */
+  function onDropEvent(event: DragEvent): void {
+    dragOver = false;
+    const source = event.dataTransfer?.getData("application/x-sftp-source");
+    if (source === "local" || source === "remote") {
+      event.preventDefault();
+      onDrop?.(source);
+    }
   }
 </script>
 
 <section
   class="pane"
   class:active
+  class:drag-over={dragOver}
   data-kind={pane.kind}
   aria-label={`${pane.kind} pane`}
   onpointerdown={onActivate}
   onfocusin={onActivate}
+  ondragover={onDragOver}
+  ondragleave={() => (dragOver = false)}
+  ondrop={onDropEvent}
 >
   {#if pane.path}
     <Breadcrumbs path={pane.path} kind={pane.kind} {onNavigate} />
@@ -59,6 +85,7 @@
     {:else}
       <FileTable
         entries={pane.sortedEntries}
+        paneKind={pane.kind}
         sortKey={pane.sortKey}
         sortAsc={pane.sortAsc}
         selected={pane.selected}
@@ -86,6 +113,11 @@
   .pane.active {
     outline: 2px solid var(--accent, #396cd8);
     outline-offset: -1px;
+  }
+  .pane.drag-over {
+    outline: 2px dashed var(--accent, #396cd8);
+    outline-offset: -1px;
+    background: color-mix(in srgb, var(--accent, #396cd8) 8%, var(--surface, #fff));
   }
   .placeholder-header {
     padding: 6px 10px;
