@@ -13,10 +13,21 @@
 <script lang="ts">
   interface Props {
     connected: boolean;
+    canUpload?: boolean;
+    canDownload?: boolean;
     onConnect?: () => void;
+    onUpload?: () => void;
+    onDownload?: () => void;
   }
 
-  let { connected, onConnect }: Props = $props();
+  let {
+    connected,
+    canUpload = false,
+    canDownload = false,
+    onConnect,
+    onUpload,
+    onDownload,
+  }: Props = $props();
 </script>
 
 <header class="toolbar">
@@ -26,8 +37,16 @@
     <button class="primary" onclick={() => onConnect?.()}>
       {connected ? "Disconnect" : "Connect…"}
     </button>
-    <button disabled title="Upload selected (available once connected)">Upload ↑</button>
-    <button disabled title="Download selected (available once connected)">Download ↓</button>
+    <button
+      disabled={!canUpload}
+      title="Upload selected local files to the remote folder (Cmd/Ctrl+U)"
+      onclick={() => onUpload?.()}>Upload ↑</button
+    >
+    <button
+      disabled={!canDownload}
+      title="Download selected remote files to the local folder (Cmd/Ctrl+D)"
+      onclick={() => onDownload?.()}>Download ↓</button
+    >
   </div>
 </header>
 

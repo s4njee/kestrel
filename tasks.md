@@ -129,7 +129,7 @@ Goal: single-file upload/download with live progress and cancel. Proves the whol
 - [x] **E2-S3 — Transfer panel UI** (M)
   - Do: `transfers.svelte.ts` store fed by events; `TransferPanel.svelte` + `TransferRow.svelte`: filename, direction arrow, progress bar, rate (from `rateBps`), cancel button, done/failed states; dock expands when a transfer starts; badge count on StatusBar.
   - Accept: component tests (row renders each state); manual: visible smooth progress on a large file.
-- [ ] **E2-S4 — Download/upload actions** (S)
+- [x] **E2-S4 — Download/upload actions** (S)
   - Do: toolbar buttons + Cmd/Ctrl+D (download selection) / Cmd/Ctrl+U (upload selection) acting on active pane's selection into the opposite pane's cwd; disabled states when no selection/session.
   - Accept: manual 1 GB file each direction with live progress + cancel; store test for enqueue payloads.
 - [ ] **E2-S5 — Throughput benchmark (risk gate)** (S)

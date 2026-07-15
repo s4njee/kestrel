@@ -19,8 +19,12 @@
     localHomeDir,
     localListDir,
     listDir,
+    enqueueTransfers,
     type SessionInfo,
+    type TransferRequest,
   } from "$lib/ipc/commands";
+  import { buildTransferRequests } from "$lib/transfer";
+  import { basename } from "$lib/utils/path";
   import Toolbar from "$lib/components/layout/Toolbar.svelte";
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
@@ -90,6 +94,53 @@
     ui.setActivePane("remote");
   }
 
+  let canUpload = $derived(connected && localPane.selected.size > 0);
+  let canDownload = $derived(connected && remotePane.selected.size > 0);
+
+  /** Download the remote pane's selected files into the local pane's folder. */
+  async function download(): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id) return;
+    const requests = buildTransferRequests(
+      "download",
+      id,
+      remotePane.selectedEntries,
+      localPane.path,
+    );
+    await startTransfers(requests, "download");
+  }
+
+  /** Upload the local pane's selected files into the remote pane's folder. */
+  async function upload(): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id || !remotePane.path) return;
+    const requests = buildTransferRequests(
+      "upload",
+      id,
+      localPane.selectedEntries,
+      remotePane.path,
+    );
+    await startTransfers(requests, "upload");
+  }
+
+  /** Enqueue requests, seed the transfers store, and reveal the dock. */
+  async function startTransfers(
+    requests: TransferRequest[],
+    direction: "upload" | "download",
+  ): Promise<void> {
+    if (requests.length === 0) return;
+    const ids = await enqueueTransfers(requests);
+    ids.forEach((tid, i) =>
+      transfers.add({
+        id: tid,
+        direction,
+        name: basename(requests[i].dest),
+        size: requests[i].size,
+      }),
+    );
+    ui.setTransferPanelExpanded(true);
+  }
+
   /** Refresh the active pane. */
   function refreshActive(): void {
     if (ui.activePane === "local") void loadLocal(localPane.path);
@@ -106,6 +157,12 @@
     } else if (event.key === "l") {
       event.preventDefault();
       document.getElementById(`path-input-${ui.activePane}`)?.focus();
+    } else if (event.key === "d") {
+      event.preventDefault();
+      if (canDownload) void download();
+    } else if (event.key === "u") {
+      event.preventDefault();
+      if (canUpload) void upload();
     }
   }
 </script>
@@ -113,7 +170,14 @@
 <svelte:window onkeydown={onGlobalKey} />
 
 <div class="app">
-  <Toolbar {connected} {onConnect} />
+  <Toolbar
+    {connected}
+    {canUpload}
+    {canDownload}
+    {onConnect}
+    onUpload={upload}
+    onDownload={download}
+  />
 
   <main class="workspace">
     <SplitPane ratio={ui.splitRatio} onRatioChange={(r) => (ui.splitRatio = r)}>

@@ -8,6 +8,31 @@ function sep(path: string): string {
 }
 
 /**
+ * Join a directory and a child name using the directory's separator.
+ *
+ * @param dir - the directory path.
+ * @param name - the child entry name.
+ * @returns the joined path.
+ */
+export function joinPath(dir: string, name: string): string {
+  const s = sep(dir);
+  return dir.endsWith(s) ? `${dir}${name}` : `${dir}${s}${name}`;
+}
+
+/**
+ * The final component of a path.
+ *
+ * @param path - a path.
+ * @returns the last segment (the file/dir name).
+ */
+export function basename(path: string): string {
+  const s = sep(path);
+  const trimmed = path.endsWith(s) ? path.slice(0, -1) : path;
+  const idx = trimmed.lastIndexOf(s);
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+}
+
+/**
  * The parent directory of a path.
  *
  * @param path - an absolute path.
