@@ -30,6 +30,7 @@ pub async fn list_dir(
         .ok_or_else(|| "no such session".to_string())?;
     let entries = session
         .remote_fs()
+        .await
         .list(&path)
         .await
         .map_err(|e| e.to_string())?;
@@ -54,6 +55,7 @@ pub async fn stat_entry(
         .ok_or_else(|| "no such session".to_string())?;
     let meta = session
         .remote_fs()
+        .await
         .stat(&path)
         .await
         .map_err(|e| e.to_string())?;

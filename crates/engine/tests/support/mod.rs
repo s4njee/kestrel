@@ -23,6 +23,7 @@ use russh_sftp::protocol::{
 };
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 /// A throwaway ed25519 host key (test-only) so every connection to a given
 /// server instance sees a stable key — required by the reconnect/TOFU tests.
@@ -42,6 +43,7 @@ pub struct TestServer {
     /// seeding a client's known_hosts in changed-key tests.
     pub host_key_openssh: String,
     root: tempfile::TempDir,
+    shutdown: CancellationToken,
     _task: tokio::task::JoinHandle<()>,
 }
 
@@ -52,11 +54,23 @@ impl TestServer {
     }
 }
 
-/// Start a test server that accepts the given username/password.
-///
-/// Arguments: `user`, `password` — the single credential pair to accept.
-/// Returns: a [`TestServer`] with the bound port, host key, and tempdir root.
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        // Cancel all live connections (closing their sockets so the client sees
+        // a disconnect) and abort the accept loop so the port frees up.
+        self.shutdown.cancel();
+        self._task.abort();
+    }
+}
+
+/// Start a test server on a random port.
 pub async fn start_password_server(user: &str, password: &str) -> TestServer {
+    start_password_server_on(user, password, 0).await
+}
+
+/// Start a test server on a specific port (0 = random). Retries the bind
+/// briefly so a just-freed port can be reused by a reconnect test.
+pub async fn start_password_server_on(user: &str, password: &str, port: u16) -> TestServer {
     let host_key = decode_secret_key(TEST_HOST_KEY, None).unwrap();
     let host_key_openssh = host_key.public_key().to_openssh().unwrap();
 
@@ -70,7 +84,23 @@ pub async fn start_password_server(user: &str, password: &str) -> TestServer {
     let root = tempfile::tempdir().unwrap();
     let root_path = root.path().to_path_buf();
 
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let listener = {
+        let mut last_err = None;
+        let mut bound = None;
+        for _ in 0..20 {
+            match TcpListener::bind(("127.0.0.1", port)).await {
+                Ok(l) => {
+                    bound = Some(l);
+                    break;
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        }
+        bound.unwrap_or_else(|| panic!("bind :{port} failed: {last_err:?}"))
+    };
     let port = listener.local_addr().unwrap().port();
 
     let mut server = ServerImpl {
@@ -79,14 +109,39 @@ pub async fn start_password_server(user: &str, password: &str) -> TestServer {
         root: root_path,
     };
 
+    // Manual accept loop: each connection selects on a shutdown token so that
+    // cancelling it (on TestServer drop) drops the running session and closes
+    // the socket — which the client observes as a disconnect (reconnect test).
+    let shutdown = CancellationToken::new();
+    let accept_shutdown = shutdown.clone();
     let task = tokio::spawn(async move {
-        let _ = server.run_on_socket(config, &listener).await;
+        loop {
+            let stream = tokio::select! {
+                _ = accept_shutdown.cancelled() => break,
+                res = listener.accept() => match res {
+                    Ok((stream, _addr)) => stream,
+                    Err(_) => break,
+                },
+            };
+            let handler = server.new_client(None);
+            let cfg = config.clone();
+            let conn_shutdown = accept_shutdown.clone();
+            tokio::spawn(async move {
+                if let Ok(running) = russh::server::run_stream(cfg, stream, handler).await {
+                    tokio::select! {
+                        _ = conn_shutdown.cancelled() => {}
+                        _ = running => {}
+                    }
+                }
+            });
+        }
     });
 
     TestServer {
         port,
         host_key_openssh,
         root,
+        shutdown,
         _task: task,
     }
 }

@@ -57,7 +57,7 @@ async fn main() {
         })
         .await
         .expect("connect");
-    let fs = engine.session(id).unwrap().remote_fs();
+    let fs = engine.session(id).unwrap().remote_fs().await;
     let local_fs = sftpapp_engine::LocalFs::new();
 
     let progress = AtomicU64::new(0);

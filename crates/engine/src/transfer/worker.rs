@@ -54,10 +54,16 @@ async fn dest_info(direction: Direction, path: &str, session: &Session) -> Optio
             size: m.len(),
             mtime: local_mtime(&m),
         }),
-        Direction::Upload => session.remote_fs().stat(path).await.ok().map(|m| FileInfo {
-            size: m.size,
-            mtime: m.mtime,
-        }),
+        Direction::Upload => session
+            .remote_fs()
+            .await
+            .stat(path)
+            .await
+            .ok()
+            .map(|m| FileInfo {
+                size: m.size,
+                mtime: m.mtime,
+            }),
     }
 }
 
@@ -66,6 +72,7 @@ async fn src_info(item: &TransferItem, session: &Session) -> FileInfo {
     match item.direction {
         Direction::Download => session
             .remote_fs()
+            .await
             .stat(&item.src)
             .await
             .map(|m| FileInfo {

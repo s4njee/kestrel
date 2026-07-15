@@ -41,6 +41,8 @@ pub struct FileInfo {
 pub enum EngineEvent {
     /// A session finished connecting and authenticating.
     SessionConnected { session_id: SessionId },
+    /// A session's connection dropped and is being re-established.
+    SessionReconnecting { session_id: SessionId },
     /// A session ended (clean disconnect or dropped connection).
     SessionDisconnected {
         session_id: SessionId,

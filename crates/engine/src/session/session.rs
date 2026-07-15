@@ -8,17 +8,21 @@
 //! channel (the interactive channel) is opened; the channel pool is E3-S1.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use russh::client::{connect, Config, Handle};
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
 use russh_sftp::client::SftpSession;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::auth::{load_private_key, rsa_hash_alg, AuthMethod, ConnectParams};
 use crate::error::{EngineError, Result};
 use crate::events::{EngineEvent, PromptReply, Prompts, SessionId};
+use crate::fs::sftp::SftpFs;
 use crate::hostkey::{HostKey, HostKeyStatus, KnownHosts};
+use crate::transfer::retry::RetryPolicy;
 
 /// Map a russh transport error into an [`EngineError`].
 ///
@@ -161,73 +165,99 @@ impl russh::client::Handler for ClientHandler {
 /// Default number of transfer channels per session.
 const DEFAULT_POOL_SIZE: usize = 4;
 
-/// A live, authenticated SSH session: one reserved interactive SFTP channel
-/// plus a pool of transfer channels.
+/// The reconnectable part of a session: the SSH connection, its interactive
+/// SFTP channel, and the transfer channel pool. Swapped atomically on reconnect.
+struct SessionInner {
+    handle: ClientHandle,
+    sftp: Arc<SftpSession>,
+    pool: super::pool::ChannelPool,
+}
+
+/// A live, authenticated SSH session. Its connection is held behind a lock so a
+/// supervisor can transparently re-establish it after a drop (E3-S9).
 pub struct Session {
     pub id: SessionId,
     pub host: String,
     pub port: u16,
     pub username: String,
-    // Keeps the SSH connection alive; dropping it disconnects.
-    _handle: ClientHandle,
-    sftp: Arc<SftpSession>,
-    pool: super::pool::ChannelPool,
-}
-
-impl Session {
-    /// The session's interactive SFTP channel (used for browsing/ops).
-    ///
-    /// Returns: a shared handle to the [`SftpSession`].
-    pub fn sftp(&self) -> Arc<SftpSession> {
-        self.sftp.clone()
-    }
-
-    /// A [`RemoteFs`](crate::fs::RemoteFs) view over the reserved interactive
-    /// channel (browsing/file-ops — never transfers).
-    ///
-    /// Returns: an [`SftpFs`](crate::fs::sftp::SftpFs) sharing the interactive
-    /// channel.
-    pub fn remote_fs(&self) -> crate::fs::sftp::SftpFs {
-        crate::fs::sftp::SftpFs::new(self.sftp.clone())
-    }
-
-    /// Check out a transfer channel from the pool (opened lazily up to the pool
-    /// size). Transfers use these so they never block the interactive channel.
-    ///
-    /// Returns: a [`PooledChannel`](super::pool::PooledChannel) guard.
-    pub async fn checkout_transfer_channel(&self) -> Result<super::pool::PooledChannel> {
-        self.pool.checkout().await
-    }
-
-    /// The channel pool (for tests/metrics).
-    pub fn pool(&self) -> &super::pool::ChannelPool {
-        &self.pool
-    }
-}
-
-/// Connect, verify the host key, authenticate, and open the SFTP channel.
-///
-/// Arguments:
-/// - `params`: host/port/username and the auth method.
-/// - `known_hosts`: shared, mutable host-key store (updated on TOFU accept).
-/// - `prompts`: registry used to await host-key decisions.
-/// - `events`: broadcast sink for session/prompt events.
-///
-/// Returns: an authenticated [`Session`] on success; an [`EngineError`] on
-/// connection, host-key rejection, auth failure, or SFTP setup failure.
-pub async fn connect_session(
+    // Stored for reconnect (contains the auth secret; dropped with the session).
     params: ConnectParams,
     known_hosts: Arc<Mutex<KnownHosts>>,
     prompts: Prompts,
     events: broadcast::Sender<EngineEvent>,
-) -> Result<Session> {
-    let config = Arc::new(Config::default());
+    inner: RwLock<SessionInner>,
+    shutdown: CancellationToken,
+}
+
+impl Session {
+    /// A [`RemoteFs`](crate::fs::RemoteFs) view over the reserved interactive
+    /// channel (browsing/file-ops — never transfers).
+    pub async fn remote_fs(&self) -> SftpFs {
+        SftpFs::new(self.inner.read().await.sftp.clone())
+    }
+
+    /// Check out a transfer channel from the pool (opened lazily up to the pool
+    /// size). Transfers use these so they never block the interactive channel.
+    pub async fn checkout_transfer_channel(&self) -> Result<super::pool::PooledChannel> {
+        let pool = self.inner.read().await.pool.clone();
+        pool.checkout().await
+    }
+
+    /// Number of currently idle pooled channels (for tests/metrics).
+    pub async fn pool_idle_len(&self) -> usize {
+        self.inner.read().await.pool.idle_len()
+    }
+
+    /// Whether the underlying SSH connection has closed.
+    pub async fn is_closed(&self) -> bool {
+        self.inner.read().await.handle.is_closed()
+    }
+
+    /// Re-establish the connection using the stored parameters, swapping in the
+    /// fresh handle/interactive-channel/pool. Called by the supervisor on a
+    /// detected drop; also usable directly to force a reconnect.
+    pub async fn reconnect(&self) -> Result<()> {
+        let (handle, sftp, pool) = establish(
+            &self.params,
+            self.known_hosts.clone(),
+            self.prompts.clone(),
+            self.events.clone(),
+        )
+        .await?;
+        let mut inner = self.inner.write().await;
+        inner.handle = handle;
+        inner.sftp = sftp;
+        inner.pool = pool;
+        Ok(())
+    }
+
+    /// Stop the supervisor and allow the connection to close.
+    pub fn shutdown(&self) {
+        self.shutdown.cancel();
+    }
+}
+
+/// Connect, verify the host key, authenticate, and open the interactive SFTP
+/// channel + transfer pool. Shared by initial connect and reconnect.
+async fn establish(
+    params: &ConnectParams,
+    known_hosts: Arc<Mutex<KnownHosts>>,
+    prompts: Prompts,
+    events: broadcast::Sender<EngineEvent>,
+) -> Result<(ClientHandle, Arc<SftpSession>, super::pool::ChannelPool)> {
+    // Keepalives let the client detect a dead peer (an idle TCP connection to a
+    // vanished server is otherwise never noticed), which drives auto-reconnect.
+    let config = Arc::new(Config {
+        keepalive_interval: Some(Duration::from_secs(5)),
+        keepalive_max: 3,
+        ..Config::default()
+    });
     let handler = ClientHandler {
         host: params.host.clone(),
         port: params.port,
         known_hosts,
         prompts,
-        events: events.clone(),
+        events,
     };
 
     let mut handle = connect(config, (params.host.as_str(), params.port), handler)
@@ -264,22 +294,102 @@ pub async fn connect_session(
         return Err(EngineError::Auth("authentication failed".into()));
     }
 
-    // Share the connection so the pool can open more channels on it.
     let handle = Arc::new(handle);
-    // Reserved interactive channel (browsing/file-ops).
     let sftp = open_transfer_channel(&handle).await?;
     let pool = super::pool::ChannelPool::new(handle.clone(), DEFAULT_POOL_SIZE);
+    Ok((handle, sftp, pool))
+}
+
+/// Connect and authenticate a new session.
+///
+/// Arguments: `params` — connection + auth; `known_hosts`/`prompts`/`events` —
+/// shared engine state.
+/// Returns: an authenticated [`Session`] (spawn its supervisor via
+/// [`spawn_supervisor`]).
+pub async fn connect_session(
+    params: ConnectParams,
+    known_hosts: Arc<Mutex<KnownHosts>>,
+    prompts: Prompts,
+    events: broadcast::Sender<EngineEvent>,
+) -> Result<Session> {
+    let (handle, sftp, pool) = establish(
+        &params,
+        known_hosts.clone(),
+        prompts.clone(),
+        events.clone(),
+    )
+    .await?;
 
     let id = Uuid::new_v4();
     let _ = events.send(EngineEvent::SessionConnected { session_id: id });
 
     Ok(Session {
         id,
-        host: params.host,
+        host: params.host.clone(),
         port: params.port,
-        username: params.username,
-        _handle: handle,
-        sftp,
-        pool,
+        username: params.username.clone(),
+        params,
+        known_hosts,
+        prompts,
+        events,
+        inner: RwLock::new(SessionInner { handle, sftp, pool }),
+        shutdown: CancellationToken::new(),
     })
+}
+
+/// Poll interval for the connection supervisor.
+const SUPERVISOR_POLL: Duration = Duration::from_secs(2);
+/// Maximum reconnect attempts before giving up.
+const MAX_RECONNECT_ATTEMPTS: u32 = 10;
+
+/// Spawn a supervisor that detects connection drops and auto-reconnects with
+/// backoff, emitting reconnecting/connected/disconnected events.
+///
+/// Arguments: `session` — the session to watch (stops when it is shut down).
+pub fn spawn_supervisor(session: Arc<Session>) {
+    tokio::spawn(async move {
+        let policy = RetryPolicy::default();
+        loop {
+            tokio::select! {
+                _ = session.shutdown.cancelled() => return,
+                _ = tokio::time::sleep(SUPERVISOR_POLL) => {}
+            }
+            if !session.is_closed().await {
+                continue;
+            }
+
+            let _ = session.events.send(EngineEvent::SessionReconnecting {
+                session_id: session.id,
+            });
+            let mut attempt = 1;
+            loop {
+                if session.shutdown.is_cancelled() {
+                    return;
+                }
+                match session.reconnect().await {
+                    Ok(()) => {
+                        let _ = session.events.send(EngineEvent::SessionConnected {
+                            session_id: session.id,
+                        });
+                        break;
+                    }
+                    Err(_) if attempt < MAX_RECONNECT_ATTEMPTS => {
+                        let delay = policy.backoff(attempt);
+                        tokio::select! {
+                            _ = session.shutdown.cancelled() => return,
+                            _ = tokio::time::sleep(delay) => {}
+                        }
+                        attempt += 1;
+                    }
+                    Err(e) => {
+                        let _ = session.events.send(EngineEvent::SessionDisconnected {
+                            session_id: session.id,
+                            reason: Some(format!("reconnect failed: {e}")),
+                        });
+                        return;
+                    }
+                }
+            }
+        }
+    });
 }

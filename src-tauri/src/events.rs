@@ -45,6 +45,13 @@ impl SessionEventDto {
                 state: "connected".to_string(),
                 reason: None,
             }),
+            EngineEvent::SessionReconnecting { session_id } => {
+                Some(SessionEventDto::ConnectionState {
+                    session_id: session_id.to_string(),
+                    state: "reconnecting".to_string(),
+                    reason: None,
+                })
+            }
             EngineEvent::SessionDisconnected { session_id, reason } => {
                 Some(SessionEventDto::ConnectionState {
                     session_id: session_id.to_string(),

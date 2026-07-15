@@ -132,7 +132,7 @@ impl Engine {
         let session = self
             .session(session_id)
             .ok_or_else(|| EngineError::NotFound(format!("session {session_id}")))?;
-        let remote = session.remote_fs();
+        let remote = session.remote_fs().await;
         let local = LocalFs::new();
 
         // Choose source/destination filesystems; `dest_is_local` gates path
@@ -289,7 +289,10 @@ impl Engine {
         )
         .await?;
         let id = session.id;
-        self.sessions.insert(id, Arc::new(session));
+        let session = Arc::new(session);
+        // Watch for drops and auto-reconnect.
+        session::spawn_supervisor(session.clone());
+        self.sessions.insert(id, session);
         Ok(id)
     }
 
@@ -308,7 +311,10 @@ impl Engine {
     /// the session closes the SSH connection.
     pub fn disconnect(&self, id: SessionId) -> Result<()> {
         match self.sessions.remove(&id) {
-            Some(_) => {
+            Some((_, session)) => {
+                // Stop the supervisor so it releases the session and the
+                // connection closes.
+                session.shutdown();
                 let _ = self.events_tx.send(EngineEvent::SessionDisconnected {
                     session_id: id,
                     reason: None,

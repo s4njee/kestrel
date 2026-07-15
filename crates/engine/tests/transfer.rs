@@ -45,7 +45,7 @@ async fn upload_then_download_roundtrip_preserves_content() {
         &[],
     )));
     let id = connect(&engine, server.port).await;
-    let remote = engine.session(id).unwrap().remote_fs();
+    let remote = engine.session(id).unwrap().remote_fs().await;
     let local = LocalFs::new();
 
     // A local source file with varied content.
@@ -181,15 +181,15 @@ async fn transfer_channels_pool_and_stay_separate_from_interactive() {
     assert_eq!(c1.fs().list("/").await.unwrap().len(), 1);
     assert_eq!(c2.fs().list("/").await.unwrap().len(), 1);
     // Interactive listing still works while transfer channels are held.
-    assert_eq!(session.remote_fs().list("/").await.unwrap().len(), 1);
-    assert_eq!(session.pool().idle_len(), 0);
+    assert_eq!(session.remote_fs().await.list("/").await.unwrap().len(), 1);
+    assert_eq!(session.pool_idle_len().await, 0);
 
     // Returned to the pool on drop, then reused.
     drop(c1);
     drop(c2);
-    assert_eq!(session.pool().idle_len(), 2);
+    assert_eq!(session.pool_idle_len().await, 2);
     let _c3 = session.checkout_transfer_channel().await.unwrap();
-    assert_eq!(session.pool().idle_len(), 1);
+    assert_eq!(session.pool_idle_len().await, 1);
 }
 
 #[tokio::test]
@@ -551,4 +551,27 @@ async fn queue_persists_and_reloads_as_paused() {
     for id in ids {
         assert_eq!(engine2.transfer_item(id).unwrap().state(), TransferState::Paused);
     }
+}
+#[tokio::test]
+async fn reconnect_rebuilds_a_working_session() {
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.txt"), b"hi").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("kh"),
+        &[],
+    )));
+    let id = connect(&engine, server.port).await;
+    let session = engine.session(id).unwrap();
+
+    // Works before.
+    assert_eq!(session.remote_fs().await.list("/").await.unwrap().len(), 1);
+
+    // Force a reconnect: a fresh connection/channel/pool replaces the old.
+    session.reconnect().await.expect("reconnect");
+
+    // Still works over the rebuilt connection.
+    assert_eq!(session.remote_fs().await.list("/").await.unwrap().len(), 1);
+    // The pool is fresh (no idle channels carried over).
+    assert_eq!(session.pool_idle_len().await, 0);
 }

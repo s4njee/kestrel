@@ -44,6 +44,9 @@
   let connectionLabel = $derived(
     active ? `${active.info.username}@${active.info.host}` : "Not connected",
   );
+  let remoteBanner = $derived(
+    active?.state === "reconnecting" ? "Connection lost — reconnecting…" : null,
+  );
 
   /** Load a local directory into the local pane. */
   async function loadLocal(path: string): Promise<void> {
@@ -227,6 +230,7 @@
           onActivate={() => ui.setActivePane("remote")}
           onNavigate={loadRemote}
           onDrop={(src) => onPaneDrop(src, "remote")}
+          banner={remoteBanner}
         />
       {/snippet}
     </SplitPane>

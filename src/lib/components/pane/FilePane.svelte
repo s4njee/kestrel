@@ -27,9 +27,18 @@
     onNavigate: (path: string) => void;
     onDrop?: (sourcePane: PaneKind) => void;
     emptyMessage?: string;
+    banner?: string | null;
   }
 
-  let { pane, active, onActivate, onNavigate, onDrop, emptyMessage = "Empty" }: Props = $props();
+  let {
+    pane,
+    active,
+    onActivate,
+    onNavigate,
+    onDrop,
+    emptyMessage = "Empty",
+    banner = null,
+  }: Props = $props();
 
   let dragOver = $state(false);
 
@@ -73,6 +82,10 @@
     <Breadcrumbs path={pane.path} kind={pane.kind} {onNavigate} />
   {:else}
     <header class="placeholder-header">{pane.kind === "remote" ? "Not connected" : "Local"}</header>
+  {/if}
+
+  {#if banner}
+    <div class="banner" role="status">{banner}</div>
   {/if}
 
   <div class="body">
@@ -125,6 +138,13 @@
     font-weight: 600;
     background: var(--surface-2, #f2f2f2);
     border-bottom: 1px solid var(--border, #d0d0d0);
+  }
+  .banner {
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    background: #fff3cd;
+    color: #7a5c00;
+    border-bottom: 1px solid #f0d98c;
   }
   .body {
     flex: 1 1 auto;

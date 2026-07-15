@@ -58,7 +58,7 @@ async fn list_reports_files_dirs_symlinks_and_unicode() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine_with_empty_known_hosts(&dir);
     let id = connect(&engine, server.port).await;
-    let fs = engine.session(id).unwrap().remote_fs();
+    let fs = engine.session(id).unwrap().remote_fs().await;
 
     let mut entries = fs.list("/").await.unwrap();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -87,7 +87,7 @@ async fn stat_returns_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine_with_empty_known_hosts(&dir);
     let id = connect(&engine, server.port).await;
-    let fs = engine.session(id).unwrap().remote_fs();
+    let fs = engine.session(id).unwrap().remote_fs().await;
 
     let file = fs.stat("/f.bin").await.unwrap();
     assert_eq!(file.kind, EntryKind::File);
@@ -112,7 +112,7 @@ async fn large_directory_lists_completely() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine_with_empty_known_hosts(&dir);
     let id = connect(&engine, server.port).await;
-    let fs = engine.session(id).unwrap().remote_fs();
+    let fs = engine.session(id).unwrap().remote_fs().await;
 
     let entries = fs.list("/big").await.unwrap();
     assert_eq!(entries.len(), 1000);
