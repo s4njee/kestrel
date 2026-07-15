@@ -66,6 +66,7 @@ pub enum AuthDto {
     Password { password: String },
     Key { path: String, passphrase: Option<String> },
     Agent,
+    KeyboardInteractive,
 }
 
 /// Inbound connection request from the connect dialog.
@@ -90,6 +91,7 @@ impl ConnectRequest {
                 passphrase: passphrase.map(Secret::new),
             },
             AuthDto::Agent => AuthMethod::Agent,
+            AuthDto::KeyboardInteractive => AuthMethod::KeyboardInteractive,
         };
         ConnectParams {
             host: self.host,
@@ -138,12 +140,16 @@ impl TransferRequestDto {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PromptReplyDto {
     HostKey { accept: bool },
+    KeyboardInteractive { responses: Vec<String> },
 }
 
 impl From<PromptReplyDto> for PromptReply {
     fn from(dto: PromptReplyDto) -> Self {
         match dto {
             PromptReplyDto::HostKey { accept } => PromptReply::HostKey { accept },
+            PromptReplyDto::KeyboardInteractive { responses } => {
+                PromptReply::KeyboardInteractive(responses)
+            }
         }
     }
 }

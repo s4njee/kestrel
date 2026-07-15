@@ -33,6 +33,15 @@ pub struct FileInfo {
     pub mtime: Option<i64>,
 }
 
+/// One field of a keyboard-interactive auth challenge.
+#[derive(Clone, Debug)]
+pub struct AuthPromptField {
+    /// The prompt text to show the user.
+    pub text: String,
+    /// Whether the response should be echoed (false = masked, e.g. a password).
+    pub echo: bool,
+}
+
 /// Events emitted by the engine for the shell to react to.
 ///
 /// Progress/transfer events are added in Epic 2; this covers session lifecycle
@@ -77,6 +86,12 @@ pub enum EngineEvent {
         changed: bool,
         existing_fingerprint: Option<String>,
     },
+    /// A keyboard-interactive auth challenge needs user responses.
+    AuthPrompt {
+        prompt_id: Uuid,
+        instructions: String,
+        fields: Vec<AuthPromptField>,
+    },
 }
 
 /// A user's reply to a pending prompt.
@@ -84,6 +99,8 @@ pub enum EngineEvent {
 pub enum PromptReply {
     /// Response to a [`EngineEvent::HostKeyPrompt`]: accept and trust, or reject.
     HostKey { accept: bool },
+    /// Responses to a [`EngineEvent::AuthPrompt`] (one per field, in order).
+    KeyboardInteractive(Vec<String>),
 }
 
 /// Registry of prompts awaiting a user reply.

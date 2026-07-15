@@ -30,6 +30,21 @@ pub enum SessionEventDto {
         state: String,
         reason: Option<String>,
     },
+    /// A keyboard-interactive auth challenge awaiting user responses.
+    #[serde(rename_all = "camelCase")]
+    AuthPrompt {
+        prompt_id: String,
+        instructions: String,
+        fields: Vec<AuthFieldDto>,
+    },
+}
+
+/// One field of a keyboard-interactive challenge (mirrors the TS shape).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthFieldDto {
+    pub text: String,
+    pub echo: bool,
 }
 
 impl SessionEventDto {
@@ -59,6 +74,21 @@ impl SessionEventDto {
                     reason,
                 })
             }
+            EngineEvent::AuthPrompt {
+                prompt_id,
+                instructions,
+                fields,
+            } => Some(SessionEventDto::AuthPrompt {
+                prompt_id: prompt_id.to_string(),
+                instructions,
+                fields: fields
+                    .into_iter()
+                    .map(|f| AuthFieldDto {
+                        text: f.text,
+                        echo: f.echo,
+                    })
+                    .collect(),
+            }),
             EngineEvent::HostKeyPrompt {
                 prompt_id,
                 host,

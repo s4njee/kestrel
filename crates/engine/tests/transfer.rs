@@ -640,3 +640,47 @@ async fn agent_auth_errors_when_no_agent() {
         .expect_err("agent auth should fail with no reachable agent");
     assert!(matches!(err, sftpapp_engine::EngineError::Auth(_)), "got {err:?}");
 }
+
+#[tokio::test]
+async fn keyboard_interactive_auth_succeeds() {
+    use sftpapp_engine::{EngineEvent, PromptReply};
+    let server = support::start_ki_server("u", "sesame").await;
+    std::fs::write(server.root().join("f.txt"), b"ok").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("kh"),
+        &[],
+    )));
+    let mut events = engine.subscribe();
+    let responder = engine.clone();
+    tokio::spawn(async move {
+        while let Ok(event) = events.recv().await {
+            match event {
+                EngineEvent::HostKeyPrompt { prompt_id, .. } => {
+                    responder
+                        .prompts()
+                        .respond(prompt_id, PromptReply::HostKey { accept: true });
+                }
+                EngineEvent::AuthPrompt { prompt_id, fields, .. } => {
+                    // Answer every field with the magic word.
+                    let answers = fields.iter().map(|_| "sesame".to_string()).collect();
+                    responder
+                        .prompts()
+                        .respond(prompt_id, PromptReply::KeyboardInteractive(answers));
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let id = engine
+        .connect(ConnectParams {
+            host: "127.0.0.1".to_string(),
+            port: server.port,
+            username: "u".to_string(),
+            auth: AuthMethod::KeyboardInteractive,
+        })
+        .await
+        .expect("keyboard-interactive connect");
+    assert_eq!(engine.session(id).unwrap().remote_fs().await.list("/").await.unwrap().len(), 1);
+}

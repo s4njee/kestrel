@@ -30,7 +30,8 @@ export interface SessionInfo {
 export type Auth =
   | { method: "password"; password: string }
   | { method: "key"; path: string; passphrase: string | null }
-  | { method: "agent" };
+  | { method: "agent" }
+  | { method: "keyboardInteractive" };
 
 /** A connection request (mirrors `ConnectRequest`). */
 export interface ConnectRequest {
@@ -41,7 +42,8 @@ export interface ConnectRequest {
 }
 
 /** A reply to a prompt (mirrors `PromptReplyDto`). */
-export type PromptReply = { type: "hostKey"; accept: boolean };
+export type PromptReply =
+  { type: "hostKey"; accept: boolean } | { type: "keyboardInteractive"; responses: string[] };
 
 /** Transfer direction. */
 export type TransferDirection = "upload" | "download";
@@ -102,6 +104,12 @@ export type SessionEvent =
       sessionId: string;
       state: "connected" | "disconnected" | "reconnecting";
       reason: string | null;
+    }
+  | {
+      type: "authPrompt";
+      promptId: string;
+      instructions: string;
+      fields: { text: string; echo: boolean }[];
     };
 
 /**

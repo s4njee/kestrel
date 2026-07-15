@@ -28,6 +28,9 @@ export function routeSessionEvent(event: SessionEvent): void {
     case "hostKeyPrompt":
       prompts.setHostKeyPrompt(event);
       break;
+    case "authPrompt":
+      prompts.setAuthPrompt(event);
+      break;
   }
 }
 

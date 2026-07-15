@@ -65,12 +65,28 @@ impl Drop for TestServer {
 
 /// Start a test server on a random port.
 pub async fn start_password_server(user: &str, password: &str) -> TestServer {
-    start_password_server_on(user, password, 0).await
+    start_server(user, password, None, 0).await
 }
 
-/// Start a test server on a specific port (0 = random). Retries the bind
-/// briefly so a just-freed port can be reused by a reconnect test.
+/// Start a test server on a specific port (0 = random).
 pub async fn start_password_server_on(user: &str, password: &str, port: u16) -> TestServer {
+    start_server(user, password, None, port).await
+}
+
+/// Start a test server that requires keyboard-interactive auth, accepting
+/// `answer` as the single challenge response.
+pub async fn start_ki_server(user: &str, answer: &str) -> TestServer {
+    start_server(user, "", Some(answer.to_string()), 0).await
+}
+
+/// Start a test server (retries the bind briefly so a just-freed port can be
+/// reused by a reconnect test).
+async fn start_server(
+    user: &str,
+    password: &str,
+    ki_answer: Option<String>,
+    port: u16,
+) -> TestServer {
     let host_key = decode_secret_key(TEST_HOST_KEY, None).unwrap();
     let host_key_openssh = host_key.public_key().to_openssh().unwrap();
 
@@ -106,6 +122,7 @@ pub async fn start_password_server_on(user: &str, password: &str, port: u16) -> 
     let mut server = ServerImpl {
         user: user.to_string(),
         password: password.to_string(),
+        ki_answer,
         root: root_path,
     };
 
@@ -150,6 +167,7 @@ pub async fn start_password_server_on(user: &str, password: &str, port: u16) -> 
 struct ServerImpl {
     user: String,
     password: String,
+    ki_answer: Option<String>,
     root: PathBuf,
 }
 
@@ -160,6 +178,7 @@ impl Server for ServerImpl {
         SessionHandler {
             user: self.user.clone(),
             password: self.password.clone(),
+            ki_answer: self.ki_answer.clone(),
             root: self.root.clone(),
             channels: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -169,6 +188,7 @@ impl Server for ServerImpl {
 struct SessionHandler {
     user: String,
     password: String,
+    ki_answer: Option<String>,
     root: PathBuf,
     channels: Arc<Mutex<HashMap<ChannelId, Channel<Msg>>>>,
 }
@@ -184,6 +204,41 @@ impl Handler for SessionHandler {
                 proceed_with_methods: None,
                 partial_success: false,
             })
+        }
+    }
+
+    async fn auth_keyboard_interactive(
+        &mut self,
+        user: &str,
+        _submethods: &str,
+        response: Option<russh::server::Response<'_>>,
+    ) -> Result<Auth, Self::Error> {
+        let Some(expected) = self.ki_answer.clone() else {
+            return Ok(Auth::reject());
+        };
+        match response {
+            // First call: issue a single-prompt challenge.
+            None if user == self.user => Ok(Auth::Partial {
+                name: std::borrow::Cow::Borrowed(""),
+                instructions: std::borrow::Cow::Borrowed("Answer the challenge"),
+                prompts: std::borrow::Cow::Owned(vec![(
+                    std::borrow::Cow::Borrowed("Challenge: "),
+                    true,
+                )]),
+            }),
+            // Response call: accept iff it matches.
+            Some(mut answers) => {
+                let given = answers
+                    .next()
+                    .map(|b| String::from_utf8_lossy(&b).into_owned())
+                    .unwrap_or_default();
+                if given == expected {
+                    Ok(Auth::Accept)
+                } else {
+                    Ok(Auth::reject())
+                }
+            }
+            None => Ok(Auth::reject()),
         }
     }
 

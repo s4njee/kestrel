@@ -47,6 +47,8 @@ pub enum AuthMethod {
     },
     /// Authenticate using a running ssh-agent (each identity is tried).
     Agent,
+    /// Keyboard-interactive: the server issues challenges the user answers.
+    KeyboardInteractive,
 }
 
 /// Everything needed to open a session.

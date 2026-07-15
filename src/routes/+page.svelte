@@ -12,8 +12,10 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { sessions } from "$lib/stores/sessions.svelte";
   import { transfers } from "$lib/stores/transfers.svelte";
+  import { prompts } from "$lib/stores/prompts.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents } from "$lib/ipc/events";
+  import { respondPrompt } from "$lib/ipc/commands";
   import {
     disconnect as disconnectCmd,
     localHomeDir,
@@ -45,6 +47,7 @@
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
   import HostKeyDialog from "$lib/components/dialogs/HostKeyDialog.svelte";
   import ConflictDialog from "$lib/components/dialogs/ConflictDialog.svelte";
+  import PromptDialog from "$lib/components/dialogs/PromptDialog.svelte";
 
   let showConnect = $state(false);
 
@@ -404,6 +407,23 @@
 {/if}
 <HostKeyDialog />
 <ConflictDialog />
+
+{#if prompts.auth}
+  {@const authPrompt = prompts.auth}
+  <PromptDialog
+    title="Authentication"
+    instructions={authPrompt.instructions}
+    fields={authPrompt.fields}
+    onSubmit={(responses) => {
+      prompts.clearAuth();
+      void respondPrompt(authPrompt.promptId, { type: "keyboardInteractive", responses });
+    }}
+    onCancel={() => {
+      prompts.clearAuth();
+      void respondPrompt(authPrompt.promptId, { type: "keyboardInteractive", responses: [] });
+    }}
+  />
+{/if}
 
 {#if contextMenu}
   <ContextMenu

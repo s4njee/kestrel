@@ -178,6 +178,62 @@ async fn agent_authenticate(handle: &mut Handle<ClientHandler>, username: &str) 
     Ok(false)
 }
 
+/// Authenticate via keyboard-interactive: relay server challenges to the user
+/// (through the prompt registry) and send back their responses.
+///
+/// Arguments: `handle` — the SSH handle; `username` — the login; `prompts` —
+/// the prompt registry; `events` — the event sink for auth prompts.
+/// Returns: `Ok(true)` on success, `Ok(false)` on failure/cancel.
+async fn ki_authenticate(
+    handle: &mut Handle<ClientHandler>,
+    username: &str,
+    prompts: &Prompts,
+    events: &broadcast::Sender<EngineEvent>,
+) -> Result<bool> {
+    use russh::client::KeyboardInteractiveAuthResponse as Resp;
+
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(username.to_string(), None)
+        .await
+        .map_err(map_russh)?;
+
+    loop {
+        match response {
+            Resp::Success => return Ok(true),
+            Resp::Failure { .. } => return Ok(false),
+            Resp::InfoRequest {
+                name,
+                instructions,
+                prompts: fields,
+            } => {
+                let (prompt_id, rx) = prompts.register();
+                let dto_fields = fields
+                    .iter()
+                    .map(|p| crate::events::AuthPromptField {
+                        text: p.prompt.clone(),
+                        echo: p.echo,
+                    })
+                    .collect();
+                let instructions = if instructions.is_empty() { name } else { instructions };
+                let _ = events.send(EngineEvent::AuthPrompt {
+                    prompt_id,
+                    instructions,
+                    fields: dto_fields,
+                });
+
+                let responses = match rx.await {
+                    Ok(PromptReply::KeyboardInteractive(r)) => r,
+                    _ => return Ok(false),
+                };
+                response = handle
+                    .authenticate_keyboard_interactive_respond(responses)
+                    .await
+                    .map_err(map_russh)?;
+            }
+        }
+    }
+}
+
 /// russh client callback handler: owns the shared state needed to make a
 /// host-key trust decision during the handshake.
 pub(crate) struct ClientHandler {
@@ -331,8 +387,8 @@ async fn establish(
         host: params.host.clone(),
         port: params.port,
         known_hosts,
-        prompts,
-        events,
+        prompts: prompts.clone(),
+        events: events.clone(),
     };
 
     let mut handle = connect(config, (params.host.as_str(), params.port), handler)
@@ -364,6 +420,9 @@ async fn establish(
                 .success()
         }
         AuthMethod::Agent => agent_authenticate(&mut handle, &params.username).await?,
+        AuthMethod::KeyboardInteractive => {
+            ki_authenticate(&mut handle, &params.username, &prompts, &events).await?
+        }
     };
 
     if !authenticated {

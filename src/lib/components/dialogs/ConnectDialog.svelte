@@ -26,7 +26,7 @@
   let host = $state("");
   let port = $state(22);
   let username = $state("");
-  let method = $state<"password" | "key" | "agent">("password");
+  let method = $state<"password" | "key" | "agent" | "keyboardInteractive">("password");
   let password = $state("");
   let keyPath = $state("");
   let passphrase = $state("");
@@ -54,7 +54,9 @@
         ? { method: "password", password }
         : method === "key"
           ? { method: "key", path: keyPath, passphrase: passphrase || null }
-          : { method: "agent" };
+          : method === "keyboardInteractive"
+            ? { method: "keyboardInteractive" }
+            : { method: "agent" };
     return { host: host.trim(), port, username: username.trim(), auth };
   }
 
@@ -102,10 +104,15 @@
       <label class="radio">
         <input type="radio" name="method" value="agent" bind:group={method} /> ssh-agent
       </label>
+      <label class="radio">
+        <input type="radio" name="method" value="keyboardInteractive" bind:group={method} /> Keyboard-interactive
+      </label>
     </fieldset>
 
     {#if method === "agent"}
       <p class="agent-note">Authentication will use identities from your running ssh-agent.</p>
+    {:else if method === "keyboardInteractive"}
+      <p class="agent-note">The server will prompt for credentials during connection.</p>
     {:else if method === "password"}
       <label>
         <span>Password</span>
