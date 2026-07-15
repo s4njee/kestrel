@@ -110,3 +110,43 @@ pnpm tauri build --debug --no-bundle
 ```
 
 A full signed bundle build requires the secrets above.
+
+## 6. Pre-release manual smoke checklist
+
+Automated tests cover the engine and frontend units, the in-process SFTP
+integration suite, and (nightly/CI) real-server fidelity + a Linux e2e smoke.
+Before publishing a release, still run this manual sweep on each platform you
+ship — it exercises the native window, OS keychain, drag-and-drop, and the
+updater, which automation here does not fully cover. Point the app at a real
+SFTP server (or `docker run -p 2222:22 atmoz/sftp user:pass:::upload`).
+
+Mark each item ✅/❌ per OS; record anomalies in Notes. A release needs a clean
+run on **at least macOS** (Gate M5).
+
+| #   | Check                                                                 | macOS | Windows | Linux | Notes |
+| --- | --------------------------------------------------------------------- | :---: | :-----: | :---: | ----- |
+| 1   | Connect: **password** auth                                            |   ☐   |    ☐    |   ☐   |       |
+| 2   | Connect: **private key** (with + without passphrase)                  |   ☐   |    ☐    |   ☐   |       |
+| 3   | Connect: **ssh-agent** (key loaded in agent)                          |   ☐   |    ☐    |   ☐   |       |
+| 4   | Connect: **keyboard-interactive**                                     |   ☐   |    ☐    |   ☐   |       |
+| 5   | Host key **TOFU** accept persists to known_hosts                      |   ☐   |    ☐    |   ☐   |       |
+| 6   | **Changed** host key → hard MITM warning, no default-accept           |   ☐   |    ☐    |   ☐   |       |
+| 7   | Browse a **10k-entry** directory: smooth scroll, sort, type-ahead     |   ☐   |    ☐    |   ☐   |       |
+| 8   | **1 GB download** with mid-flight **pause/resume** → integrity ok     |   ☐   |    ☐    |   ☐   |       |
+| 9   | **1 GB upload** with mid-flight **pause/resume** → integrity ok       |   ☐   |    ☐    |   ☐   |       |
+| 10  | **Network kill** mid-transfer → auto-retry/reconnect resumes          |   ☐   |    ☐    |   ☐   |       |
+| 11  | **Recursive download** of a directory tree (symlinks skipped)         |   ☐   |    ☐    |   ☐   |       |
+| 12  | **Recursive upload** of a directory tree                              |   ☐   |    ☐    |   ☐   |       |
+| 13  | File ops: **rename, move, delete, mkdir, chmod** (both panes)         |   ☐   |    ☐    |   ☐   |       |
+| 14  | Conflict dialog: overwrite / skip / rename / resume + apply-to-all    |   ☐   |    ☐    |   ☐   |       |
+| 15  | DnD **between panes** (upload + download directions)                  |   ☐   |    ☐    |   ☐   |       |
+| 16  | DnD **OS files into the window** → uploads                            |   ☐   |    ☐    |   ☐   |       |
+| 17  | Bookmarks: save (with secret), edit, delete, connect-from-bookmark    |   ☐   |    ☐    |   ☐   |       |
+| 18  | Saved secret is present in the **OS keychain**, absent from JSON/logs |   ☐   |    ☐    |   ☐   |       |
+| 19  | Settings persist across restart; concurrency change applies mid-queue |   ☐   |    ☐    |   ☐   |       |
+| 20  | Local pane **auto-refreshes** on external file changes                |   ☐   |    ☐    |   ☐   |       |
+| 21  | Shortcuts: refresh, F2, Delete, Cmd/Ctrl+D/U/L, Tab pane-switch       |   ☐   |    ☐    |   ☐   |       |
+| 22  | **Auto-update** from the previous installed version succeeds          |   ☐   |    ☐    |   ☐   |       |
+
+> Item 22 requires a prior signed install and a published (or locally served)
+> `latest.json` — validate it against a real update feed before announcing.
