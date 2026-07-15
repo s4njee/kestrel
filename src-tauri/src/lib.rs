@@ -9,12 +9,50 @@
 mod commands;
 mod dto;
 mod events;
+// The store's write/delete paths are consumed by the bookmark save/connect flow
+// (E4-S6); until then only the startup availability probe reads it, so the rest
+// of the API is not yet called from non-test code.
+#[allow(dead_code)]
+mod secrets;
 mod state;
+
+use std::sync::Arc;
 
 use sftpapp_engine::{Engine, KnownHosts};
 use tauri::Manager;
 
+use secrets::{SecretKind, SecretRef, SecretStore};
 use state::AppState;
+
+/// Build the credential store, preferring the OS keychain.
+///
+/// Probes the platform keychain with a harmless lookup of a sentinel key; if no
+/// backend is available (common on headless/minimal Linux), falls back to a
+/// session-only in-memory store so the app still runs — saved secrets simply do
+/// not survive a restart.
+///
+/// Arguments: none.
+/// Returns: an `Arc<dyn SecretStore>` ready for managed state.
+fn build_secret_store() -> Arc<dyn SecretStore> {
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        let keychain = secrets::KeyringStore::new();
+        // A read of a random, non-existent key returns Ok(None) when the backend
+        // is reachable and Err(Unavailable) when it is not.
+        let sentinel = SecretRef::new(uuid::Uuid::nil(), SecretKind::Password);
+        match keychain.get(&sentinel) {
+            Err(secrets::SecretError::Unavailable(reason)) => {
+                tracing::warn!(%reason, "OS keychain unavailable; using session-only secrets");
+                Arc::new(secrets::InMemoryStore::new())
+            }
+            _ => Arc::new(keychain),
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Arc::new(secrets::InMemoryStore::new())
+    }
+}
 
 /// Build the known_hosts store from platform paths.
 ///
@@ -64,7 +102,7 @@ pub fn run() {
             engine.load_persisted_queue(&queue_path);
             engine.set_queue_persistence(queue_path);
 
-            let state = AppState::new(engine);
+            let state = AppState::new(engine, build_secret_store());
             // Start the transfer worker + progress aggregator inside the async
             // runtime (tokio::spawn needs a runtime context).
             let engine_for_workers = state.engine.clone();

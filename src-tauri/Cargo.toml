@@ -25,6 +25,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+
+# OS keychain for saved passwords/passphrases. keyring 4's default `v1` feature
+# selects the platform-appropriate backend per target — macOS Keychain, Windows
+# Credential Manager, Linux Secret Service (GNOME Keyring / KWallet) — and keeps
+# the classic `Entry` API, so no per-target feature juggling is needed.
+keyring = { workspace = true }
 
 # The protocol-agnostic engine: sessions, transfers, RemoteFs. All disk/network
 # I/O lives here; the shell only marshals paths/metadata across IPC.
