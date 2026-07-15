@@ -41,3 +41,9 @@ sftpapp-engine = { path = "../crates/engine" }
 [dev-dependencies]
 tempfile = { workspace = true }
 
+# Desktop auto-update (signed artifacts + latest.json). Desktop-only, so it is
+# scoped to the three desktop targets and registered under cfg(desktop) in
+# lib.rs.
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"
+
