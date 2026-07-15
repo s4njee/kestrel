@@ -66,7 +66,7 @@ Goal: a running empty shell on all 3 OSes + workspace + CI. No SSH yet.
 - [x] **E0-S3 — Frontend tooling** (S)
   - Do: add prettier + prettier-plugin-svelte, eslint + eslint-plugin-svelte (flat config), vitest + @testing-library/svelte + jsdom. Package scripts: `check` (svelte-check), `lint` (eslint + prettier --check), `format`, `test` (vitest run). TS strict on. One trivial component test to prove the harness.
   - Accept: all four scripts pass locally.
-- [ ] **E0-S4 — Dual-pane shell UI skeleton** (M)
+- [x] **E0-S4 — Dual-pane shell UI skeleton** (M)
   - Do: build the static layout per Appendix A frontend tree: `SplitPane` (draggable divider, persisted ratio in a `ui.svelte.ts` runes store), two placeholder `FilePane`s ("Local" / "Not connected"), top `Toolbar` (connect button placeholder), bottom `TransferPanel` dock (collapsed, empty state), `StatusBar`. Mock data only, no IPC. Keyboard focus outline between panes (active pane concept in store).
   - Accept: shell renders in `pnpm tauri dev`; divider drags and ratio survives reload (window-state or localStorage); `pnpm check`/`lint`/`test` green.
 - [ ] **E0-S5 — CI pipeline** (S)

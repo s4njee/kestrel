@@ -40,8 +40,11 @@ export default defineConfig(async () => ({
   },
 
   // Vitest: jsdom for component tests; shared setup registers jest-dom matchers.
+  // A concrete origin (not the opaque about:blank default) is required for
+  // jsdom to enable window.localStorage, which the ui store persists to.
   test: {
     environment: "jsdom",
+    environmentOptions: { jsdom: { url: "http://localhost/" } },
     globals: true,
     setupFiles: ["./vitest-setup.ts"],
     include: ["src/**/*.{test,spec}.{js,ts}"],

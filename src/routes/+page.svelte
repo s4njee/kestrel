@@ -1,167 +1,95 @@
 <!--
-  +page.svelte — Application root page.
+  +page.svelte — Application shell (dual-pane layout).
 
-  E0-S1 SKELETON: this is the scaffold demo (a "greet" round-trip to Rust). It
-  is replaced by the dual-pane shell (SplitPane + panes + transfer dock) in
-  E0-S4. Kept only so `pnpm tauri dev` renders something during E0-S2/S3.
+  Composes the top toolbar, the resizable split of the local and remote file
+  panes, the bottom transfer dock, and the status bar. E0-S4 wires these with
+  MOCK data and no IPC: the local pane shows sample rows, the remote pane shows
+  a "Not connected" empty state. Real connections/browsing arrive in Epic 1.
 -->
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { ui } from "$lib/stores/ui.svelte";
+  import type { FileEntry } from "$lib/types";
+  import Toolbar from "$lib/components/layout/Toolbar.svelte";
+  import StatusBar from "$lib/components/layout/StatusBar.svelte";
+  import SplitPane from "$lib/components/layout/SplitPane.svelte";
+  import FilePane from "$lib/components/pane/FilePane.svelte";
+  import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  // Mock local entries so the shell has something to render before IPC lands.
+  const localEntries: FileEntry[] = [
+    { name: "Documents", kind: "dir", size: 0, mtime: 1_720_000_000, permissions: 0o755 },
+    { name: "Downloads", kind: "dir", size: 0, mtime: 1_721_000_000, permissions: 0o755 },
+    { name: "notes.txt", kind: "file", size: 2048, mtime: 1_721_500_000, permissions: 0o644 },
+    {
+      name: "archive.tar.gz",
+      kind: "file",
+      size: 15_728_640,
+      mtime: 1_719_000_000,
+      permissions: 0o644,
+    },
+    {
+      name: "link-to-docs",
+      kind: "symlink",
+      size: 0,
+      mtime: 1_720_500_000,
+      permissions: 0o777,
+      linkTarget: "Documents",
+    },
+  ];
 
-  /**
-   * Send the entered name to the Rust `greet` command and show the reply.
-   *
-   * @param event - the form submit event (default action is prevented).
-   * @returns a promise that resolves once `greetMsg` has been updated.
-   */
-  async function greet(event: Event) {
-    event.preventDefault();
-    greetMsg = await invoke("greet", { name });
+  const remoteEntries: FileEntry[] = [];
+
+  // Placeholder connection state until Epic 1 wires real sessions.
+  let connected = $state(false);
+
+  /** Placeholder Connect handler; opens the connect dialog in E1-S9. */
+  function onConnect(): void {
+    // Intentionally a no-op in the skeleton.
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<div class="app">
+  <Toolbar {connected} {onConnect} />
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+  <main class="workspace">
+    <SplitPane ratio={ui.splitRatio} onRatioChange={(r) => (ui.splitRatio = r)}>
+      {#snippet left()}
+        <FilePane
+          kind="local"
+          title="Local — ~/"
+          entries={localEntries}
+          active={ui.activePane === "local"}
+          onActivate={() => ui.setActivePane("local")}
+        />
+      {/snippet}
+      {#snippet right()}
+        <FilePane
+          kind="remote"
+          title="Remote — Not connected"
+          entries={remoteEntries}
+          active={ui.activePane === "remote"}
+          emptyMessage="Not connected. Use Connect… to open a session."
+          onActivate={() => ui.setActivePane("remote")}
+        />
+      {/snippet}
+    </SplitPane>
+  </main>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+  <TransferPanel count={0} />
+  <StatusBar connectionLabel={connected ? "Connected" : "Not connected"} transferCount={0} />
+</div>
 
 <style>
-  .logo.vite:hover {
-    filter: drop-shadow(0 0 2em #747bff);
-  }
-
-  .logo.svelte-kit:hover {
-    filter: drop-shadow(0 0 2em #ff3e00);
-  }
-
-  :root {
-    font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-    font-size: 16px;
-    line-height: 24px;
-    font-weight: 400;
-
-    color: #0f0f0f;
-    background-color: #f6f6f6;
-
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    -webkit-text-size-adjust: 100%;
-  }
-
-  .container {
-    margin: 0;
-    padding-top: 10vh;
+  .app {
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    text-align: center;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
   }
-
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: 0.75s;
-  }
-
-  .logo.tauri:hover {
-    filter: drop-shadow(0 0 2em #24c8db);
-  }
-
-  .row {
+  .workspace {
     display: flex;
-    justify-content: center;
-  }
-
-  a {
-    font-weight: 500;
-    color: #646cff;
-    text-decoration: inherit;
-  }
-
-  a:hover {
-    color: #535bf2;
-  }
-
-  h1 {
-    text-align: center;
-  }
-
-  input,
-  button {
-    border-radius: 8px;
-    border: 1px solid transparent;
-    padding: 0.6em 1.2em;
-    font-size: 1em;
-    font-weight: 500;
-    font-family: inherit;
-    color: #0f0f0f;
-    background-color: #ffffff;
-    transition: border-color 0.25s;
-    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-  }
-
-  button {
-    cursor: pointer;
-  }
-
-  button:hover {
-    border-color: #396cd8;
-  }
-  button:active {
-    border-color: #396cd8;
-    background-color: #e8e8e8;
-  }
-
-  input,
-  button {
-    outline: none;
-  }
-
-  #greet-input {
-    margin-right: 5px;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color: #f6f6f6;
-      background-color: #2f2f2f;
-    }
-
-    a:hover {
-      color: #24c8db;
-    }
-
-    input,
-    button {
-      color: #ffffff;
-      background-color: #0f0f0f98;
-    }
-    button:active {
-      background-color: #0f0f0f69;
-    }
+    flex: 1 1 auto;
+    min-height: 0;
   }
 </style>
