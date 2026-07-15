@@ -84,7 +84,7 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 - [x] **E1-S1 — Engine core types: errors + `RemoteFs` trait** (S)
   - Do: `error.rs` (`EngineError` via thiserror + `classify() -> Transient|Fatal`), `fs/mod.rs` exactly per the trait in Appendix A (plus `DirEntry { name, path, kind: File|Dir|Symlink, size, mtime, permissions: Option<u32>, link_target: Option<String> }`, `Metadata`, `WriteMode::{Create, Resume{offset}}`, `FsCapabilities { supports_permissions, supports_symlinks }`).
   - Accept: unit tests for classify; trait object-safe (`Box<dyn RemoteFs>` compiles).
-- [ ] **E1-S2 — `LocalFs`** (S)
+- [x] **E1-S2 — `LocalFs`** (S)
   - Do: `fs/local.rs` implementing `RemoteFs` over `tokio::fs` (list/stat/open_read(offset via seek)/open_write/rename/remove_file/remove_dir/mkdir/set_permissions(unix-only; no-op with capability flag off on Windows)/read_link).
   - Accept: tempdir-based unit tests incl. offset read, resume write, unicode names.
 - [ ] **E1-S3 — Host-key store + TOFU decisions** (M)

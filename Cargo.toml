@@ -41,3 +41,6 @@ russh-sftp = "=2.3.0"
 # Credentials and filesystem watching
 keyring = "4"
 notify = "8"
+
+# Test-only helpers
+tempfile = "3"
