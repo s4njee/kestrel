@@ -102,7 +102,7 @@ Goal: connect to a real SFTP server (password or key file), TOFU host keys, brow
 - [x] **E1-S7 — Tauri shell: state, session commands, prompt plumbing** (M)
   - Do: `src-tauri/src/`: `state.rs` (`AppState { sessions, pending_prompts: DashMap<Uuid, oneshot::Sender<PromptReply>>, ... }`), `dto.rs` (serde DTOs mirroring engine types), commands `connect` (awaits prompts mid-handshake), `disconnect`, `list_dir`, `local_list_dir`, `local_home_dir`, `respond_prompt`; `subscribe_session_events(Channel<SessionEvent>)` bridging the engine broadcast (payload shapes in Appendix A). Register everything in `lib.rs`.
   - Accept: `cargo test` for DTO serde shapes; manual: commands callable from devtools console via `window.__TAURI__.core.invoke`.
-- [ ] **E1-S8 — Frontend IPC layer + stores** (S)
+- [x] **E1-S8 — Frontend IPC layer + stores** (S)
   - Do: `src/lib/ipc/commands.ts` (typed invoke wrappers — the single mirror of `dto.rs`; keep field names in sync manually and note the pairing in a comment at the top of both files), `src/lib/ipc/events.ts` (subscribe once at startup, dispatch into stores), `stores/{sessions,panes}.svelte.ts` runes stores.
   - Accept: vitest with mocked `@tauri-apps/api/core`: connect flow updates sessions store; session events route to store.
 - [ ] **E1-S9 — Connect dialog + prompt dialogs** (M)
