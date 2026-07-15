@@ -14,6 +14,7 @@ import { sessions } from "$lib/stores/sessions.svelte";
 import { prompts } from "$lib/stores/prompts.svelte";
 import { transfers } from "$lib/stores/transfers.svelte";
 import { conflicts } from "$lib/stores/conflicts.svelte";
+import { toasts } from "$lib/stores/toasts.svelte";
 
 /** Handler invoked when the watched local directory changes (set by the shell). */
 let localDirChangedHandler: ((path: string) => void) | null = null;
@@ -69,6 +70,10 @@ export function routeTransferEvent(event: TransferEvent): void {
         direction: event.direction,
         error: event.error,
       });
+      // Surface a failed transfer as a transient toast (the row still shows it).
+      if (event.state === "failed" && event.error) {
+        toasts.error(`Transfer failed: ${event.name} — ${event.error}`);
+      }
       break;
     case "progressBatch":
       transfers.setProgress(event.items);

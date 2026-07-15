@@ -38,8 +38,11 @@
   import type { DirEntry } from "$lib/ipc/commands";
   import type { PaneKind } from "$lib/types";
   import { buildTransferRequests, dropDirection, uploadRequestsForPaths } from "$lib/transfer";
+  import { resolveShortcut } from "$lib/keymap";
+  import { toasts } from "$lib/stores/toasts.svelte";
   import { parentPath, joinPath } from "$lib/utils/path";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import ContextMenu, { type MenuItem } from "$lib/components/common/ContextMenu.svelte";
   import PermissionsDialog from "$lib/components/dialogs/PermissionsDialog.svelte";
   import DeleteConfirmDialog from "$lib/components/dialogs/DeleteConfirmDialog.svelte";
@@ -49,6 +52,7 @@
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
   import FilePane from "$lib/components/pane/FilePane.svelte";
   import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
+  import Toasts from "$lib/components/common/Toasts.svelte";
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
   import BookmarkManager from "$lib/components/dialogs/BookmarkManager.svelte";
   import SettingsDialog from "$lib/components/dialogs/SettingsDialog.svelte";
@@ -75,6 +79,17 @@
   let remoteBanner = $derived(
     active?.state === "reconnecting" ? "Connection lost — reconnecting…" : null,
   );
+
+  // Reflect the active session in the window/document title.
+  $effect(() => {
+    const title = active ? `sftpapp — ${active.info.username}@${active.info.host}` : "sftpapp";
+    document.title = title;
+    try {
+      void getCurrentWindow().setTitle(title);
+    } catch {
+      /* no Tauri runtime (dev preview) */
+    }
+  });
 
   /** Load a local directory into the local pane, and watch it for changes. */
   async function loadLocal(path: string): Promise<void> {
@@ -139,8 +154,12 @@
   async function onOsDrop(paths: string[]): Promise<void> {
     const id = sessions.active?.info.id;
     if (!id || !remotePane.path || paths.length === 0) return;
-    await enqueueTransfers(uploadRequestsForPaths(id, paths, remotePane.path));
-    ui.setTransferPanelExpanded(true);
+    try {
+      await enqueueTransfers(uploadRequestsForPaths(id, paths, remotePane.path));
+      ui.setTransferPanelExpanded(true);
+    } catch (e) {
+      toasts.error(`Could not queue upload: ${String(e)}`);
+    }
   }
 
   /** Handle a cross-pane drag drop. */
@@ -215,13 +234,17 @@
     const fileRequests = buildTransferRequests(direction, sessionId, entries, destDir);
     const dirs = entries.filter((e) => e.kind === "dir");
     let any = false;
-    if (fileRequests.length > 0) {
-      await enqueueTransfers(fileRequests);
-      any = true;
-    }
-    for (const dir of dirs) {
-      await enqueueDirectory(sessionId, direction, dir.path, destDir);
-      any = true;
+    try {
+      if (fileRequests.length > 0) {
+        await enqueueTransfers(fileRequests);
+        any = true;
+      }
+      for (const dir of dirs) {
+        await enqueueDirectory(sessionId, direction, dir.path, destDir);
+        any = true;
+      }
+    } catch (e) {
+      toasts.error(`Could not queue transfer: ${String(e)}`);
     }
     if (any) ui.setTransferPanelExpanded(true);
   }
@@ -274,7 +297,11 @@
       onSubmit: async (name) => {
         inputDialog = null;
         const dest = joinPath(parentPath(entry.path), name);
-        await renameEntry(sessionIdFor(kind), entry.path, dest);
+        try {
+          await renameEntry(sessionIdFor(kind), entry.path, dest);
+        } catch (e) {
+          toasts.error(`Rename failed: ${String(e)}`);
+        }
         refresh(kind);
       },
     };
@@ -288,7 +315,11 @@
       initial: "untitled",
       onSubmit: async (name) => {
         inputDialog = null;
-        await makeDir(sessionIdFor(kind), joinPath(paneOf(kind).path, name));
+        try {
+          await makeDir(sessionIdFor(kind), joinPath(paneOf(kind).path, name));
+        } catch (e) {
+          toasts.error(`Create folder failed: ${String(e)}`);
+        }
         refresh(kind);
       },
     };
@@ -306,11 +337,15 @@
     const { kind, entries } = deleteTarget;
     deleteTarget = null;
     const hasDir = entries.some((e) => e.kind === "dir");
-    await deleteEntries(
-      sessionIdFor(kind),
-      entries.map((e) => e.path),
-      hasDir,
-    );
+    try {
+      await deleteEntries(
+        sessionIdFor(kind),
+        entries.map((e) => e.path),
+        hasDir,
+      );
+    } catch (e) {
+      toasts.error(`Delete failed: ${String(e)}`);
+    }
     refresh(kind);
   }
 
@@ -325,7 +360,11 @@
     if (!permsTarget) return;
     const { kind, path } = permsTarget;
     permsTarget = null;
-    await setPermissions(sessionIdFor(kind), path, mode);
+    try {
+      await setPermissions(sessionIdFor(kind), path, mode);
+    } catch (e) {
+      toasts.error(`Permissions change failed: ${String(e)}`);
+    }
     refresh(kind);
   }
 
@@ -359,43 +398,46 @@
     ];
   }
 
-  /** Global keyboard shortcuts. */
+  /** Global keyboard shortcuts (mapping in $lib/keymap; dispatch here). */
   function onGlobalKey(event: KeyboardEvent): void {
-    // Don't hijack typing in inputs.
-    const target = event.target as HTMLElement | null;
-    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-
+    const action = resolveShortcut(event);
+    if (!action) return;
     const kind = ui.activePane;
-    if (event.key === "F2") {
-      const entry = paneOf(kind).selectedEntries[0];
-      if (entry) {
-        event.preventDefault();
-        startRename(kind, entry);
+    switch (action) {
+      case "rename": {
+        const entry = paneOf(kind).selectedEntries[0];
+        if (entry) {
+          event.preventDefault();
+          startRename(kind, entry);
+        }
+        break;
       }
-      return;
-    }
-    if (event.key === "Delete" || event.key === "Backspace") {
-      if (paneOf(kind).selected.size > 0) {
+      case "delete":
+        if (paneOf(kind).selected.size > 0) {
+          event.preventDefault();
+          startDelete(kind);
+        }
+        break;
+      case "switchPane":
         event.preventDefault();
-        startDelete(kind);
-      }
-      return;
-    }
-
-    const meta = event.metaKey || event.ctrlKey;
-    if (!meta) return;
-    if (event.key === "r") {
-      event.preventDefault();
-      refreshActive();
-    } else if (event.key === "l") {
-      event.preventDefault();
-      document.getElementById(`path-input-${ui.activePane}`)?.focus();
-    } else if (event.key === "d") {
-      event.preventDefault();
-      if (canDownload) void download();
-    } else if (event.key === "u") {
-      event.preventDefault();
-      if (canUpload) void upload();
+        ui.setActivePane(kind === "local" ? "remote" : "local");
+        break;
+      case "refresh":
+        event.preventDefault();
+        refreshActive();
+        break;
+      case "focusPath":
+        event.preventDefault();
+        document.getElementById(`path-input-${ui.activePane}`)?.focus();
+        break;
+      case "download":
+        event.preventDefault();
+        if (canDownload) void download();
+        break;
+      case "upload":
+        event.preventDefault();
+        if (canUpload) void upload();
+        break;
     }
   }
 </script>
@@ -462,6 +504,7 @@
 {/if}
 <HostKeyDialog />
 <ConflictDialog />
+<Toasts />
 
 {#if prompts.auth}
   {@const authPrompt = prompts.auth}

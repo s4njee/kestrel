@@ -212,7 +212,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 - [x] **E5-S1 — Settings UI + persistence** (S)
   - Do: `settings.json` (versioned) via a small settings module: concurrency (1–8), default conflict policy, default local dir, show-hidden-files toggle; `SettingsDialog.svelte`; `set_concurrency` wired live.
   - Accept: settings survive restart; concurrency change mid-queue applies.
-- [ ] **E5-S2 — Shortcut & polish pass** (S)
+- [x] **E5-S2 — Shortcut & polish pass** (S)
   - Do: full shortcut map (refresh, F2, Delete, Cmd/Ctrl+D/U, Cmd/Ctrl+L, pane-switch Tab); `Toasts.svelte` for transient errors everywhere an invariant says so; empty states; window title = active session.
   - Accept: shortcut integration tests via Testing Library keyboard events; manual sweep.
 - [ ] **E5-S3 — Updater + signing configuration** (M)
@@ -361,6 +361,7 @@ lib/utils/{path,format}.ts
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
 
+- **E5-S2 — shortcut testing approach**: the shortcut *map* is extracted into a pure `src/lib/keymap.ts` (`resolveShortcut(event) → action`) and unit-tested directly (all chords, modifier requirement, input-suppression) rather than by rendering the whole shell — `+page` pulls in `onMount` Tauri calls (`getCurrentWebview`, window title, event subscriptions) that would need broad mocking to render under Testing Library, and the mapping is the part with real logic. `+page`'s `onGlobalKey` now just dispatches the resolved action (and adds Tab/Shift-Tab pane switching). Transient errors surface via a new `toasts` store + `Toasts.svelte` (failed-transfer events centrally in `ipc/events.ts`; file-op failures wrapped in `+page`), while listing failures keep their inline pane banners per the invariant. Window/document title tracks the active session via a `$effect`. Store tests added for toasts; the end-to-end keyboard sweep in the native window is manual.
 - **E0-S1 — config file extensions**: `create-tauri-app` (svelte-ts, v4.6.2) scaffolds `vite.config.js` and `svelte.config.js`, not the `.ts` variants Appendix A lists. Kept the scaffold defaults; no functional difference.
 - **E0-S1 — app name**: proceeded with the working name `sftpapp` / `io.sanjee.sftpapp` (package, crate, productName). Still the open item from E0-S1 — rename remains cheap until signing (E5).
 - **E0-S3 — jsdom localStorage**: this environment's jsdom does not expose `window.localStorage` (opaque-origin behavior) and Node's global `localStorage` is inert. Added an in-memory `localStorage` polyfill in `vitest-setup.ts` (plus a concrete jsdom `url`) so the ui store's persistence is testable. The ui store reads via `window.localStorage`, never the bare global.
