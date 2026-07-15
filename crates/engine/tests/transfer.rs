@@ -7,9 +7,10 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use sftpapp_engine::{
-    copy_file, AuthMethod, ConnectParams, CopyOptions, Engine, EngineEvent, KnownHosts, LocalFs,
-    PromptReply, Secret, SessionId,
+    copy_file, AuthMethod, ConnectParams, CopyOptions, Direction, Engine, EngineEvent, KnownHosts,
+    LocalFs, PromptReply, Secret, SessionId, TransferId, TransferRequest, TransferState,
 };
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
 async fn connect(engine: &Arc<Engine>, port: u16) -> SessionId {
@@ -88,4 +89,74 @@ async fn upload_then_download_roundtrip_preserves_content() {
     assert_eq!(tokio::fs::read(&dst).await.unwrap(), data);
     // The .part file was renamed away.
     assert!(tokio::fs::metadata(format!("{dst}.part")).await.is_err());
+}
+
+/// Wait for a transfer to reach a terminal state, returning it.
+async fn await_terminal(
+    events: &mut broadcast::Receiver<EngineEvent>,
+    id: TransferId,
+) -> TransferState {
+    loop {
+        if let Ok(EngineEvent::TransferStateChanged { id: eid, state, .. }) = events.recv().await {
+            if eid == id && state.is_terminal() {
+                return state;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn queue_download_completes_and_writes_content() {
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("payload.bin"), vec![42u8; 200_000]).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let dest = dir.path().join("out.bin").to_string_lossy().into_owned();
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/payload.bin".to_string(),
+        dest: dest.clone(),
+        size: 200_000,
+    }]);
+
+    let state = await_terminal(&mut events, ids[0]).await;
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(tokio::fs::read(&dest).await.unwrap(), vec![42u8; 200_000]);
+}
+
+#[tokio::test]
+async fn queue_cancel_marks_canceled() {
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("big.bin"), vec![1u8; 4_000_000]).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let dest = dir.path().join("big-out.bin").to_string_lossy().into_owned();
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Download,
+        src: "/big.bin".to_string(),
+        dest,
+        size: 4_000_000,
+    }]);
+
+    engine.cancel_transfer(ids[0]);
+    let state = await_terminal(&mut events, ids[0]).await;
+    assert_eq!(state, TransferState::Canceled);
 }

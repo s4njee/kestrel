@@ -52,7 +52,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let engine = Engine::new(build_known_hosts(app));
-            app.manage(AppState::new(engine));
+            let state = AppState::new(engine);
+            // Start the transfer worker + progress aggregator inside the async
+            // runtime (tokio::spawn needs a runtime context).
+            let engine_for_workers = state.engine.clone();
+            tauri::async_runtime::spawn(async move {
+                engine_for_workers.spawn_transfer_workers();
+            });
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -64,6 +71,10 @@ pub fn run() {
             commands::browse::stat_entry,
             commands::local::local_home_dir,
             commands::local::local_list_dir,
+            commands::transfer::enqueue_transfers,
+            commands::transfer::cancel_transfer,
+            commands::transfer::clear_completed,
+            commands::transfer::subscribe_transfer_events,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

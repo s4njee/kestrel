@@ -11,8 +11,20 @@ use dashmap::DashMap;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
+use crate::transfer::{TransferId, TransferState};
+
 /// Identifies a live session in the [`crate::session::Engine`].
 pub type SessionId = Uuid;
+
+/// One transfer's progress at a sampling instant (part of a batched update).
+#[derive(Clone, Debug)]
+pub struct ProgressSample {
+    pub id: TransferId,
+    /// Total bytes copied so far.
+    pub bytes: u64,
+    /// Smoothed transfer rate in bytes per second.
+    pub rate_bps: f64,
+}
 
 /// Events emitted by the engine for the shell to react to.
 ///
@@ -27,6 +39,14 @@ pub enum EngineEvent {
         session_id: SessionId,
         reason: Option<String>,
     },
+    /// A transfer changed lifecycle state (queued/running/done/failed/canceled).
+    TransferStateChanged {
+        id: TransferId,
+        state: TransferState,
+        error: Option<String>,
+    },
+    /// Batched progress for all running transfers (emitted at ≤10 Hz).
+    TransferProgress { samples: Vec<ProgressSample> },
     /// The server presented a host key that needs a user decision (TOFU).
     ///
     /// `changed` distinguishes an unknown host (false) from a key that differs

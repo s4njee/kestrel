@@ -28,10 +28,11 @@ pub mod watcher;
 
 pub use auth::{AuthMethod, ConnectParams, Secret};
 pub use error::{EngineError, ErrorClass, Result};
-pub use events::{EngineEvent, PromptReply, Prompts, SessionId};
+pub use events::{EngineEvent, ProgressSample, PromptReply, Prompts, SessionId};
 pub use fs::local::LocalFs;
 pub use fs::sftp::SftpFs;
 pub use fs::{DirEntry, EntryKind, FsCapabilities, Metadata, RemoteFs, WriteMode};
 pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
 pub use session::{Engine, Session};
 pub use transfer::io::{copy_file, CopyOptions};
+pub use transfer::{Direction, TransferId, TransferItem, TransferRequest, TransferState};

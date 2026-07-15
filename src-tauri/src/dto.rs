@@ -6,7 +6,10 @@
 //! serialized back out (auth fields are inbound-only).
 
 use serde::{Deserialize, Serialize};
-use sftpapp_engine::{AuthMethod, ConnectParams, DirEntry, EntryKind, PromptReply, Secret};
+use sftpapp_engine::{
+    AuthMethod, ConnectParams, DirEntry, Direction, EntryKind, PromptReply, Secret, TransferRequest,
+};
+use uuid::Uuid;
 
 /// A directory entry as sent to the webview.
 #[derive(Debug, Clone, Serialize)]
@@ -92,6 +95,39 @@ impl ConnectRequest {
             username: self.username,
             auth,
         }
+    }
+}
+
+/// Inbound request to enqueue one transfer (mirrors `TransferRequest`).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRequestDto {
+    pub session_id: String,
+    /// "upload" | "download".
+    pub direction: String,
+    pub src: String,
+    pub dest: String,
+    pub size: u64,
+}
+
+impl TransferRequestDto {
+    /// Convert into an engine [`TransferRequest`].
+    ///
+    /// Returns: the request, or an error string for a bad id/direction.
+    pub fn into_request(self) -> Result<TransferRequest, String> {
+        let session_id = Uuid::parse_str(&self.session_id).map_err(|e| e.to_string())?;
+        let direction = match self.direction.as_str() {
+            "upload" => Direction::Upload,
+            "download" => Direction::Download,
+            other => return Err(format!("unknown direction: {other}")),
+        };
+        Ok(TransferRequest {
+            session_id,
+            direction,
+            src: self.src,
+            dest: self.dest,
+            size: self.size,
+        })
     }
 }
 

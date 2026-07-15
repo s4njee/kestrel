@@ -21,6 +21,7 @@ use crate::auth::ConnectParams;
 use crate::error::{EngineError, Result};
 use crate::events::{EngineEvent, Prompts, SessionId};
 use crate::hostkey::KnownHosts;
+use crate::transfer::{TransferId, TransferItem, TransferQueue, TransferRequest};
 
 pub use session::Session;
 
@@ -36,22 +37,57 @@ pub struct Engine {
     events_tx: broadcast::Sender<EngineEvent>,
     prompts: Prompts,
     known_hosts: Arc<Mutex<KnownHosts>>,
-    sessions: DashMap<SessionId, Arc<Session>>,
+    sessions: Arc<DashMap<SessionId, Arc<Session>>>,
+    queue: TransferQueue,
 }
 
 impl Engine {
     /// Create an engine over the given host-key store.
     ///
     /// Arguments: `known_hosts` — the loaded known_hosts store (app + user).
-    /// Returns: a ready [`Engine`] with no active sessions.
+    /// Returns: a ready [`Engine`] with no active sessions. Call
+    /// [`spawn_transfer_workers`](Self::spawn_transfer_workers) from a tokio
+    /// runtime to start processing transfers.
     pub fn new(known_hosts: KnownHosts) -> Self {
         let (events_tx, _rx) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let sessions = Arc::new(DashMap::new());
+        let queue = TransferQueue::new(sessions.clone(), events_tx.clone());
         Engine {
             events_tx,
             prompts: Prompts::new(),
             known_hosts: Arc::new(Mutex::new(known_hosts)),
-            sessions: DashMap::new(),
+            sessions,
+            queue,
         }
+    }
+
+    /// Start the transfer worker + progress aggregator (requires a running
+    /// tokio runtime).
+    pub fn spawn_transfer_workers(&self) {
+        self.queue.spawn_workers();
+    }
+
+    /// Enqueue transfers.
+    ///
+    /// Arguments: `requests` — the transfers to queue.
+    /// Returns: the new transfer ids in request order.
+    pub fn enqueue_transfers(&self, requests: Vec<TransferRequest>) -> Vec<TransferId> {
+        self.queue.enqueue(requests)
+    }
+
+    /// Cancel a transfer.
+    pub fn cancel_transfer(&self, id: TransferId) {
+        self.queue.cancel(id);
+    }
+
+    /// Remove completed/failed/canceled transfers from the queue.
+    pub fn clear_completed(&self) {
+        self.queue.clear_completed();
+    }
+
+    /// Look up a transfer item.
+    pub fn transfer_item(&self, id: TransferId) -> Option<Arc<TransferItem>> {
+        self.queue.item(id)
     }
 
     /// Subscribe to engine events.

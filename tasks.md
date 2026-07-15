@@ -123,7 +123,7 @@ Goal: single-file upload/download with live progress and cancel. Proves the whol
 - [x] **E2-S1 — Chunked transfer I/O** (M)
   - Do: `transfer/io.rs`: `copy_stream(src: &dyn RemoteFs, dst: &dyn RemoteFs, ...)` — 256 KiB chunks, per-item `AtomicU64` progress, honors `CancellationToken` between chunks, downloads to `<name>.part` + fsync + atomic rename, uploads direct. Implement `SftpFs` open_read(offset)/open_write now if E1-S5 deferred them.
   - Accept: unit tests via LocalFs↔LocalFs and integration via in-process server: content integrity (hash compare), cancellation leaves `.part`, rename only on completion.
-- [ ] **E2-S2 — Minimal queue + progress aggregation + transfer IPC** (M)
+- [x] **E2-S2 — Minimal queue + progress aggregation + transfer IPC** (M)
   - Do: `transfer/mod.rs`: `TransferItem` (fields per Appendix A), states `Queued→Running→(Done|Failed|Canceled)` for now; single worker task. Aggregator: sample running items at 10 Hz, EWMA rate, emit `EngineEvent::ProgressBatch`. src-tauri: `enqueue_transfers`, `cancel_transfer`, `subscribe_transfer_events(Channel<TransferEvent>)`.
   - Accept: engine test with `tokio::time::pause` shows ≤10 Hz batching; cancel mid-transfer works.
 - [ ] **E2-S3 — Transfer panel UI** (M)
