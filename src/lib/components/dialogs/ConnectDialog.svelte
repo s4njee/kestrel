@@ -26,7 +26,7 @@
   let host = $state("");
   let port = $state(22);
   let username = $state("");
-  let method = $state<"password" | "key">("password");
+  let method = $state<"password" | "key" | "agent">("password");
   let password = $state("");
   let keyPath = $state("");
   let passphrase = $state("");
@@ -34,11 +34,11 @@
   let connecting = $state(false);
   let error = $state<string | null>(null);
 
+  let methodReady = $derived(
+    method === "password" ? password !== "" : method === "key" ? keyPath.trim() !== "" : true,
+  );
   let canSubmit = $derived(
-    host.trim() !== "" &&
-      username.trim() !== "" &&
-      (method === "password" ? password !== "" : keyPath.trim() !== "") &&
-      !connecting,
+    host.trim() !== "" && username.trim() !== "" && methodReady && !connecting,
   );
 
   /** Open a native file picker for the private key path. */
@@ -49,10 +49,12 @@
 
   /** Build the connect request from the current form state. */
   function buildRequest(): ConnectRequest {
-    const auth =
+    const auth: ConnectRequest["auth"] =
       method === "password"
-        ? ({ method: "password", password } as const)
-        : ({ method: "key", path: keyPath, passphrase: passphrase || null } as const);
+        ? { method: "password", password }
+        : method === "key"
+          ? { method: "key", path: keyPath, passphrase: passphrase || null }
+          : { method: "agent" };
     return { host: host.trim(), port, username: username.trim(), auth };
   }
 
@@ -97,9 +99,14 @@
       <label class="radio">
         <input type="radio" name="method" value="key" bind:group={method} /> Private key
       </label>
+      <label class="radio">
+        <input type="radio" name="method" value="agent" bind:group={method} /> ssh-agent
+      </label>
     </fieldset>
 
-    {#if method === "password"}
+    {#if method === "agent"}
+      <p class="agent-note">Authentication will use identities from your running ssh-agent.</p>
+    {:else if method === "password"}
       <label>
         <span>Password</span>
         <input type="password" bind:value={password} autocomplete="off" />
@@ -176,6 +183,11 @@
     color: #c0392b;
     font-size: 0.8rem;
     margin: 0;
+  }
+  .agent-note {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--muted, #666);
   }
   .actions {
     display: flex;

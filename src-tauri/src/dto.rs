@@ -65,6 +65,7 @@ pub struct SessionInfoDto {
 pub enum AuthDto {
     Password { password: String },
     Key { path: String, passphrase: Option<String> },
+    Agent,
 }
 
 /// Inbound connection request from the connect dialog.
@@ -88,6 +89,7 @@ impl ConnectRequest {
                 path: path.into(),
                 passphrase: passphrase.map(Secret::new),
             },
+            AuthDto::Agent => AuthMethod::Agent,
         };
         ConnectParams {
             host: self.host,

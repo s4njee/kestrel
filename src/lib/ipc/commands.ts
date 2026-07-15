@@ -29,7 +29,8 @@ export interface SessionInfo {
 /** Auth choice sent with a connect request (mirrors `AuthDto`). */
 export type Auth =
   | { method: "password"; password: string }
-  | { method: "key"; path: string; passphrase: string | null };
+  | { method: "key"; path: string; passphrase: string | null }
+  | { method: "agent" };
 
 /** A connection request (mirrors `ConnectRequest`). */
 export interface ConnectRequest {

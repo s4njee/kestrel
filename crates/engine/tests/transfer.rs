@@ -606,3 +606,37 @@ async fn remote_file_ops_rename_mkdir_delete_recursive_chmod() {
     remove_recursive(&fs, "/proj").await.unwrap();
     assert!(!server.root().join("proj").exists());
 }
+
+#[tokio::test]
+async fn agent_auth_errors_when_no_agent() {
+    // Point at a non-existent agent socket so agent auth fails deterministically.
+    std::env::set_var("SSH_AUTH_SOCK", "/nonexistent/sftpapp-test-agent.sock");
+    let server = support::start_password_server("u", "p").await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("kh"),
+        &[],
+    )));
+    let mut events = engine.subscribe();
+    let responder = engine.clone();
+    tokio::spawn(async move {
+        while let Ok(event) = events.recv().await {
+            if let EngineEvent::HostKeyPrompt { prompt_id, .. } = event {
+                responder
+                    .prompts()
+                    .respond(prompt_id, PromptReply::HostKey { accept: true });
+            }
+        }
+    });
+
+    let err = engine
+        .connect(ConnectParams {
+            host: "127.0.0.1".to_string(),
+            port: server.port,
+            username: "u".to_string(),
+            auth: AuthMethod::Agent,
+        })
+        .await
+        .expect_err("agent auth should fail with no reachable agent");
+    assert!(matches!(err, sftpapp_engine::EngineError::Auth(_)), "got {err:?}");
+}

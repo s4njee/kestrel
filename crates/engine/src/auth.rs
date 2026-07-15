@@ -45,6 +45,8 @@ pub enum AuthMethod {
         path: PathBuf,
         passphrase: Option<Secret>,
     },
+    /// Authenticate using a running ssh-agent (each identity is tried).
+    Agent,
 }
 
 /// Everything needed to open a session.

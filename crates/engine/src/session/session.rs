@@ -103,6 +103,81 @@ pub(crate) async fn open_transfer_channel(handle: &ClientHandle) -> Result<Arc<S
     Ok(Arc::new(sftp))
 }
 
+/// Connect to the platform ssh-agent (Unix `SSH_AUTH_SOCK`; Windows OpenSSH
+/// named pipe, falling back to Pageant), returning a stream-erased client.
+///
+/// Returns: a connected [`AgentClient`], or [`EngineError::Auth`] if no agent
+/// is reachable.
+async fn agent_connect() -> Result<
+    russh::keys::agent::client::AgentClient<
+        Box<dyn russh::keys::agent::client::AgentStream + Send + Unpin>,
+    >,
+> {
+    use russh::keys::agent::client::AgentClient;
+
+    #[cfg(unix)]
+    {
+        let agent = AgentClient::connect_env()
+            .await
+            .map_err(|e| EngineError::Auth(format!("ssh-agent unavailable: {e}")))?;
+        Ok(AgentClient::connect(agent.into_inner()))
+    }
+    #[cfg(windows)]
+    {
+        // OpenSSH agent named pipe first, then Pageant.
+        if let Ok(pipe) =
+            tokio::net::windows::named_pipe::ClientOptions::new().open(r"\\.\pipe\openssh-ssh-agent")
+        {
+            return Ok(AgentClient::connect(Box::new(pipe)
+                as Box<dyn russh::keys::agent::client::AgentStream + Send + Unpin>));
+        }
+        let agent = AgentClient::connect_pageant().await;
+        Ok(AgentClient::connect(agent.into_inner()))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(EngineError::Auth("ssh-agent is not supported on this platform".into()))
+    }
+}
+
+/// Authenticate by trying each identity offered by the ssh-agent.
+///
+/// Arguments: `handle` — the authenticating SSH handle; `username` — the login.
+/// Returns: `Ok(true)` if any identity authenticated; `Ok(false)` if all were
+/// rejected; [`EngineError::Auth`] if the agent is unreachable or empty.
+async fn agent_authenticate(handle: &mut Handle<ClientHandler>, username: &str) -> Result<bool> {
+    use russh::keys::agent::AgentIdentity;
+
+    let mut agent = agent_connect().await?;
+    let identities = agent
+        .request_identities()
+        .await
+        .map_err(|e| EngineError::Auth(format!("ssh-agent error: {e}")))?;
+    if identities.is_empty() {
+        return Err(EngineError::Auth("ssh-agent has no identities loaded".into()));
+    }
+
+    for identity in identities {
+        let AgentIdentity::PublicKey { key, .. } = identity else {
+            continue;
+        };
+        let hash = if key.algorithm().is_rsa() {
+            Some(russh::keys::HashAlg::Sha256)
+        } else {
+            None
+        };
+        if let Ok(result) = handle
+            .authenticate_publickey_with(username.to_string(), key, hash, &mut agent)
+            .await
+        {
+            if result.success() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// russh client callback handler: owns the shared state needed to make a
 /// host-key trust decision during the handshake.
 pub(crate) struct ClientHandler {
@@ -288,6 +363,7 @@ async fn establish(
                 .map_err(map_russh)?
                 .success()
         }
+        AuthMethod::Agent => agent_authenticate(&mut handle, &params.username).await?,
     };
 
     if !authenticated {
