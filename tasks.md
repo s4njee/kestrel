@@ -126,7 +126,7 @@ Goal: single-file upload/download with live progress and cancel. Proves the whol
 - [x] **E2-S2 — Minimal queue + progress aggregation + transfer IPC** (M)
   - Do: `transfer/mod.rs`: `TransferItem` (fields per Appendix A), states `Queued→Running→(Done|Failed|Canceled)` for now; single worker task. Aggregator: sample running items at 10 Hz, EWMA rate, emit `EngineEvent::ProgressBatch`. src-tauri: `enqueue_transfers`, `cancel_transfer`, `subscribe_transfer_events(Channel<TransferEvent>)`.
   - Accept: engine test with `tokio::time::pause` shows ≤10 Hz batching; cancel mid-transfer works.
-- [ ] **E2-S3 — Transfer panel UI** (M)
+- [x] **E2-S3 — Transfer panel UI** (M)
   - Do: `transfers.svelte.ts` store fed by events; `TransferPanel.svelte` + `TransferRow.svelte`: filename, direction arrow, progress bar, rate (from `rateBps`), cancel button, done/failed states; dock expands when a transfer starts; badge count on StatusBar.
   - Accept: component tests (row renders each state); manual: visible smooth progress on a large file.
 - [ ] **E2-S4 — Download/upload actions** (S)

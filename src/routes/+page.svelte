@@ -11,6 +11,7 @@
   import { onMount } from "svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { sessions } from "$lib/stores/sessions.svelte";
+  import { transfers } from "$lib/stores/transfers.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents } from "$lib/ipc/events";
   import {
@@ -138,8 +139,8 @@
     </SplitPane>
   </main>
 
-  <TransferPanel count={0} />
-  <StatusBar {connectionLabel} transferCount={0} />
+  <TransferPanel />
+  <StatusBar {connectionLabel} transferCount={transfers.activeCount} />
 </div>
 
 {#if showConnect}

@@ -4,9 +4,15 @@
 // `routeSessionEvent` into the relevant runes store. Kept separate and exported
 // so it can be unit-tested without a live Tauri channel.
 
-import { subscribeSessionEvents, type SessionEvent } from "./commands";
+import {
+  subscribeSessionEvents,
+  subscribeTransferEvents,
+  type SessionEvent,
+  type TransferEvent,
+} from "./commands";
 import { sessions } from "$lib/stores/sessions.svelte";
 import { prompts } from "$lib/stores/prompts.svelte";
+import { transfers } from "$lib/stores/transfers.svelte";
 
 /**
  * Dispatch a single session event into the stores.
@@ -25,10 +31,27 @@ export function routeSessionEvent(event: SessionEvent): void {
 }
 
 /**
- * Subscribe to backend session events for the lifetime of the app.
+ * Dispatch a single transfer event into the transfers store.
  *
- * @returns a promise that resolves once the subscription is registered.
+ * @param event - the event received from the transfer channel.
+ */
+export function routeTransferEvent(event: TransferEvent): void {
+  switch (event.type) {
+    case "state":
+      transfers.setState(event.id, event.state, event.error);
+      break;
+    case "progressBatch":
+      transfers.setProgress(event.items);
+      break;
+  }
+}
+
+/**
+ * Subscribe to backend session + transfer events for the app's lifetime.
+ *
+ * @returns a promise that resolves once both subscriptions are registered.
  */
 export function initSessionEvents(): Promise<void> {
+  void subscribeTransferEvents(routeTransferEvent);
   return subscribeSessionEvents(routeSessionEvent);
 }

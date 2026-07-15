@@ -42,6 +42,26 @@ export interface ConnectRequest {
 /** A reply to a prompt (mirrors `PromptReplyDto`). */
 export type PromptReply = { type: "hostKey"; accept: boolean };
 
+/** Transfer direction. */
+export type TransferDirection = "upload" | "download";
+
+/** A transfer to enqueue (mirrors `TransferRequestDto`). */
+export interface TransferRequest {
+  sessionId: string;
+  direction: TransferDirection;
+  src: string;
+  dest: string;
+  size: number;
+}
+
+/** Transfer lifecycle state string. */
+export type TransferStateStr = "queued" | "running" | "done" | "failed" | "canceled";
+
+/** Transfer events pushed over the transfer channel (mirrors `TransferEventDto`). */
+export type TransferEvent =
+  | { type: "progressBatch"; items: { id: string; bytes: number; rateBps: number }[] }
+  | { type: "state"; id: string; state: TransferStateStr; error: string | null };
+
 /** Session/prompt events pushed over the channel (mirrors `SessionEventDto`). */
 export type SessionEvent =
   | {
@@ -141,4 +161,40 @@ export function subscribeSessionEvents(onEvent: (event: SessionEvent) => void): 
   const channel = new Channel<SessionEvent>();
   channel.onmessage = onEvent;
   return invoke("subscribe_session_events", { channel });
+}
+
+/**
+ * Enqueue transfers.
+ *
+ * @param requests - the transfers to queue.
+ * @returns the new transfer ids in request order.
+ */
+export function enqueueTransfers(requests: TransferRequest[]): Promise<string[]> {
+  return invoke("enqueue_transfers", { requests });
+}
+
+/**
+ * Cancel a transfer.
+ *
+ * @param transferId - the transfer to cancel.
+ */
+export function cancelTransfer(transferId: string): Promise<void> {
+  return invoke("cancel_transfer", { transferId });
+}
+
+/** Remove completed/failed/canceled transfers from the queue. */
+export function clearCompleted(): Promise<void> {
+  return invoke("clear_completed");
+}
+
+/**
+ * Subscribe to transfer progress/state events. Call once at app start.
+ *
+ * @param onEvent - handler invoked for each transfer event.
+ * @returns a promise that resolves once the subscription is registered.
+ */
+export function subscribeTransferEvents(onEvent: (event: TransferEvent) => void): Promise<void> {
+  const channel = new Channel<TransferEvent>();
+  channel.onmessage = onEvent;
+  return invoke("subscribe_transfer_events", { channel });
 }
