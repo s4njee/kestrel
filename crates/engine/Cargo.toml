@@ -26,6 +26,7 @@ dashmap = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 zeroize = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

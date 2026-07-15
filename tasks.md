@@ -150,7 +150,7 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 - [x] **E3-S2 — Scheduler + worker pool** (M)
   - Do: `transfer/worker.rs`: scheduler task + global `Semaphore` (default 3 concurrent files, runtime-changeable via `set_concurrency`) + per-session cap = pool size. Fair-ish FIFO.
   - Accept: engine tests: concurrency respected, `set_concurrency` applies live.
-- [ ] **E3-S3 — Retry policy + error classification wiring** (S)
+- [x] **E3-S3 — Retry policy + error classification wiring** (S)
   - Do: `transfer/retry.rs`: exponential backoff 1s→32s + jitter, max 5 attempts, Transient only; Fatal → `Failed` immediately. `attempts` on item; state events on each retry.
   - Accept: `tokio::time::pause` tests for backoff sequence and fatal short-circuit.
 - [ ] **E3-S4 — Pause / resume with offsets** (M)

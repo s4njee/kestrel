@@ -15,6 +15,7 @@ use crate::error::EngineError;
 use crate::events::{EngineEvent, ProgressSample};
 use crate::fs::local::LocalFs;
 use crate::transfer::io::{copy_file, CopyOptions};
+use crate::transfer::retry::{retry, RetryPolicy};
 use crate::transfer::{Direction, QueueShared, TransferId, TransferState};
 
 /// Progress sampling period (10 Hz).
@@ -44,14 +45,16 @@ pub(crate) async fn run_worker(shared: Arc<QueueShared>) {
         let permit = shared.concurrency.acquire().await;
         let task_shared = shared.clone();
         tokio::spawn(async move {
-            process(&task_shared, id).await;
+            process(task_shared, id).await;
             drop(permit);
         });
     }
 }
 
-/// Process a single transfer end to end, emitting state transitions.
-async fn process(shared: &QueueShared, id: TransferId) {
+/// Process a single transfer end to end (with retries), emitting state
+/// transitions. Each attempt checks out a fresh pooled channel so the
+/// interactive channel stays free and a dead channel doesn't sink retries.
+async fn process(shared: Arc<QueueShared>, id: TransferId) {
     let Some(item) = shared.items.get(&id).map(|e| e.clone()) else {
         return;
     };
@@ -71,46 +74,51 @@ async fn process(shared: &QueueShared, id: TransferId) {
         return;
     };
 
-    // Use a pooled transfer channel so the interactive channel stays free for
-    // browsing/file-ops.
-    let channel = match session.checkout_transfer_channel().await {
-        Ok(channel) => channel,
-        Err(e) => {
-            shared.emit_state(id, TransferState::Failed, Some(e.to_string()));
-            return;
+    let policy = RetryPolicy::default();
+    let outcome = retry(&policy, &item.cancel, |attempt| {
+        let shared = shared.clone();
+        let item = item.clone();
+        let session = session.clone();
+        async move {
+            item.attempts.store(attempt, Ordering::Relaxed);
+            if attempt > 1 {
+                // Re-emit Running to signal a fresh attempt (progress restarts).
+                shared.emit_state(item.id, TransferState::Running, None);
+            }
+            let channel = session.checkout_transfer_channel().await?;
+            let remote = channel.fs();
+            let local = LocalFs::new();
+            match item.direction {
+                Direction::Download => {
+                    copy_file(
+                        &remote,
+                        &item.src,
+                        &local,
+                        &item.dest,
+                        CopyOptions::download(),
+                        &item.bytes_done,
+                        &item.cancel,
+                    )
+                    .await
+                }
+                Direction::Upload => {
+                    copy_file(
+                        &local,
+                        &item.src,
+                        &remote,
+                        &item.dest,
+                        CopyOptions::upload(),
+                        &item.bytes_done,
+                        &item.cancel,
+                    )
+                    .await
+                }
+            }
         }
-    };
-    let remote = channel.fs();
-    let local = LocalFs::new();
+    })
+    .await;
 
-    let result = match item.direction {
-        Direction::Download => {
-            copy_file(
-                &remote,
-                &item.src,
-                &local,
-                &item.dest,
-                CopyOptions::download(),
-                &item.bytes_done,
-                &item.cancel,
-            )
-            .await
-        }
-        Direction::Upload => {
-            copy_file(
-                &local,
-                &item.src,
-                &remote,
-                &item.dest,
-                CopyOptions::upload(),
-                &item.bytes_done,
-                &item.cancel,
-            )
-            .await
-        }
-    };
-
-    match result {
+    match outcome {
         Ok(()) => shared.emit_state(id, TransferState::Done, None),
         Err(EngineError::Canceled) => shared.emit_state(id, TransferState::Canceled, None),
         Err(e) => shared.emit_state(id, TransferState::Failed, Some(e.to_string())),
@@ -203,6 +211,7 @@ mod tests {
             dest: String::new(),
             size: 100_000,
             bytes_done: AtomicU64::new(0),
+            attempts: std::sync::atomic::AtomicU32::new(0),
             cancel: CancellationToken::new(),
             state: Mutex::new(TransferState::Running),
         });

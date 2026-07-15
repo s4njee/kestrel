@@ -13,7 +13,7 @@ pub mod retry;
 pub mod worker;
 
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
@@ -124,6 +124,8 @@ pub struct TransferItem {
     pub size: u64,
     /// Bytes copied so far (advanced by the copy loop).
     pub bytes_done: AtomicU64,
+    /// Number of attempts made so far (1-based once running).
+    pub attempts: AtomicU32,
     /// Cancellation token for this item.
     pub cancel: CancellationToken,
     state: Mutex<TransferState>,
@@ -211,6 +213,7 @@ impl TransferQueue {
                 dest: req.dest,
                 size: req.size,
                 bytes_done: AtomicU64::new(0),
+                attempts: AtomicU32::new(0),
                 cancel: CancellationToken::new(),
                 state: Mutex::new(TransferState::Queued),
             });
