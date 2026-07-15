@@ -1,0 +1,106 @@
+# release.yml — Build signed release artifacts on a version tag.
+#
+# On `v*` tags, builds the desktop matrix with tauri-action and publishes a
+# DRAFT GitHub Release carrying the signed bundles (macOS universal .dmg, Windows
+# NSIS .exe, Linux AppImage/.deb/.rpm) plus the updater `latest.json`. A human
+# reviews and publishes the draft; existing installs then auto-update (see
+# docs/RELEASING.md).
+#
+# Signing is driven entirely by repository secrets (updater key + per-OS
+# code-signing). Without them the build still runs but produces unsigned
+# artifacts — do that only for pre-release testing.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# tauri-action needs write access to create the release.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+            rust-targets: ""
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            libssl-dev
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish (draft release)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing (required for signed update artifacts).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code-signing + notarization.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code-signing (OV/EV cert path; Azure Trusted Signing is
+          # configured separately if used).
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "sftpapp ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
