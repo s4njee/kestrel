@@ -324,7 +324,7 @@ never exercised end-to-end — see the per-story Deviations notes):
 
 **Known refinements** (deliberate deferrals, each with a Deviations note):
 
-- [ ] **E7-S8 — Resume transfers across an app restart** (M)
+- [x] **E7-S8 — Resume transfers across an app restart** (M)
   - Do: reloaded transfers restore as Paused but cannot resume — `session_id` is
     stale because sessions get a fresh UUID on reconnect. Persist session
     _identity_ (host/user/port) and re-associate reloaded items on connect.
@@ -484,6 +484,8 @@ lib/utils/{path,format}.ts
 ## Deviations
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E7-S8 — resume across restart**: closes the gap left by E3-S7. The snapshot now records the session's **stable identity** (`SessionOrigin` = host/port/username) alongside the ephemeral `session_id`, and `Engine::connect` re-attaches every paused, snapshot-restored transfer whose origin matches the newly connected session. `TransferItem::session_id` became interior-mutable (`Mutex<SessionId>` behind an accessor) since items live in an `Arc` and must be re-pointed once; the blast radius was a single reader in `worker.rs`. `PersistedTransfer::origin` is `#[serde(default)] Option<_>`, so **snapshots written by older builds still load** (they simply cannot re-attach, which is the pre-existing behavior). Matching is exact on host+port+user, so a queue belonging to another server is never hijacked by whichever session connects first — covered by a dedicated negative test. Verified end-to-end against the in-process server: enqueue → snapshot → fresh engine → reload as Paused (still holding the stale id) → reconnect (asserted to get a different id) → re-attached → `resume` → Done with the bytes on disk.
 
 - **E6-S6 — adjustable console height**: the console/shell region is now dragged by a 6px grip on its top edge, with the height in the ui store (`consoleHeight`, persisted to localStorage exactly like `splitRatio`) rather than the fixed `calc(18 lines)`. Clamped to **[64px, 80% of the window]** so the console can never squeeze the panes off screen; the ceiling is computed from `window.innerHeight` at set-time, falling back to a fixed value when there is no window (build/SSR). The grip is a focusable `role="separator"` with Up/Down (Shift for a bigger step) for keyboard parity with the pane splitter. xterm reflows for free — `Terminal.svelte` already observes its container, so a drag triggers `fit()` + `shell_resize` (SSH `window-change`). Verified by driving real pointer events in the browser: drag shrank 640→440, dragging past the top clamped to exactly 640 (=80% of an 800px window), and the height survived a reload (220px restored). Note: at the 80% ceiling the panes are left ~100px — deliberate (the user drives it, and it drags straight back), but a tighter cap is a one-constant change if it proves annoying. 5 ui-store tests cover the clamping and persistence.
 

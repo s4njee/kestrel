@@ -684,3 +684,107 @@ async fn keyboard_interactive_auth_succeeds() {
         .expect("keyboard-interactive connect");
     assert_eq!(engine.session(id).unwrap().remote_fs().await.list("/").await.unwrap().len(), 1);
 }
+
+/// E7-S8: a queue interrupted by a restart must be resumable. A snapshot records
+/// the session's stable identity, and reconnecting to the same host re-attaches
+/// the restored transfers so they can actually run (their persisted session id
+/// is stale — sessions get a fresh UUID every connect).
+#[tokio::test]
+async fn restored_transfers_reattach_to_a_reconnected_session() {
+    let server = support::start_password_server("u", "p").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("queue.json");
+    std::fs::write(server.root().join("payload.bin"), vec![7u8; 4096]).unwrap();
+
+    // --- run 1: connect, enqueue against the live session, snapshot ---
+    let engine1 = Arc::new(Engine::new(KnownHosts::load(dir.path().join("kh1"), &[])));
+    engine1.set_queue_persistence(path.clone());
+    let old_session = connect(&engine1, server.port).await;
+    let dest = dir.path().join("out.bin").to_string_lossy().into_owned();
+    engine1.enqueue_transfers(vec![TransferRequest {
+        session_id: old_session,
+        direction: Direction::Download,
+        src: "/payload.bin".to_string(),
+        dest: dest.clone(),
+        size: 4096,
+    }]);
+    engine1.flush_queue_persistence();
+
+    // The snapshot carries the session's identity, not just its (ephemeral) id.
+    let snapshot: Vec<sftpapp_engine::PersistedTransfer> =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(snapshot.len(), 1);
+    let origin = snapshot[0].origin.clone().expect("origin should be persisted");
+    assert_eq!(origin.host, "127.0.0.1");
+    assert_eq!(origin.username, "u");
+
+    // --- run 2: fresh engine, load the snapshot, reconnect ---
+    let engine2 = Arc::new(Engine::new(KnownHosts::load(dir.path().join("kh2"), &[])));
+    engine2.spawn_transfer_workers();
+    let ids = engine2.load_persisted_queue(&path);
+    assert_eq!(ids.len(), 1);
+    let restored = ids[0];
+    assert_eq!(
+        engine2.transfer_item(restored).unwrap().state(),
+        TransferState::Paused
+    );
+    // Still pointing at the previous run's session id.
+    assert_eq!(
+        engine2.transfer_item(restored).unwrap().session_id(),
+        old_session
+    );
+
+    let mut events = engine2.subscribe();
+    let new_session = connect(&engine2, server.port).await;
+    assert_ne!(new_session, old_session, "a reconnect gets a fresh id");
+
+    // Connecting re-attached it to the new session.
+    assert_eq!(
+        engine2.transfer_item(restored).unwrap().session_id(),
+        new_session,
+        "restored transfer should be re-attached on reconnect"
+    );
+
+    // And it now actually resumes and completes.
+    engine2.resume_transfer(restored);
+    let state = await_terminal(&mut events, restored).await;
+    assert_eq!(state, TransferState::Done, "restored transfer should complete");
+    assert_eq!(tokio::fs::read(&dest).await.unwrap().len(), 4096);
+}
+
+/// A restored transfer for a *different* host must not be hijacked by whichever
+/// session happens to connect first.
+#[tokio::test]
+async fn restored_transfers_do_not_attach_to_a_different_host() {
+    let server = support::start_password_server("u", "p").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("queue.json");
+
+    // A snapshot belonging to some other server.
+    let foreign = vec![sftpapp_engine::PersistedTransfer {
+        session_id: uuid::Uuid::new_v4(),
+        origin: Some(sftpapp_engine::SessionOrigin {
+            host: "elsewhere.example.com".to_string(),
+            port: 22,
+            username: "someone".to_string(),
+        }),
+        direction: Direction::Download,
+        src: "/x".to_string(),
+        dest: dir.path().join("x").to_string_lossy().into_owned(),
+        size: 1,
+    }];
+    std::fs::write(&path, serde_json::to_string(&foreign).unwrap()).unwrap();
+
+    let engine = Arc::new(Engine::new(KnownHosts::load(dir.path().join("kh"), &[])));
+    let ids = engine.load_persisted_queue(&path);
+    let stale = engine.transfer_item(ids[0]).unwrap().session_id();
+
+    let new_session = connect(&engine, server.port).await;
+
+    assert_eq!(
+        engine.transfer_item(ids[0]).unwrap().session_id(),
+        stale,
+        "a transfer for another host must not be re-attached"
+    );
+    assert_ne!(engine.transfer_item(ids[0]).unwrap().session_id(), new_session);
+}

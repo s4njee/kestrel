@@ -145,10 +145,27 @@ impl TransferState {
     }
 }
 
+/// The identity of the session a transfer belongs to.
+///
+/// Sessions are assigned a fresh UUID on every connect, so a `session_id`
+/// restored from a snapshot is always stale after a restart. Persisting the
+/// stable identity (host/port/user) instead lets a reloaded transfer be
+/// re-attached to the matching session when it reconnects.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionOrigin {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+}
+
 /// A transfer as persisted to `queue.json` for crash recovery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedTransfer {
     pub session_id: SessionId,
+    /// Stable identity of the owning session, used to re-attach this transfer
+    /// after a restart. `None` for snapshots written before this field existed.
+    #[serde(default)]
+    pub origin: Option<SessionOrigin>,
     pub direction: Direction,
     pub src: String,
     pub dest: String,
@@ -171,7 +188,12 @@ pub struct TransferRequest {
 /// One queued/active transfer.
 pub struct TransferItem {
     pub id: TransferId,
-    pub session_id: SessionId,
+    /// The session this runs on. Interior-mutable because a transfer restored
+    /// from a snapshot is re-pointed at the freshly-connected session.
+    session_id: Mutex<SessionId>,
+    /// Stable identity of the owning session (see [`SessionOrigin`]); set for
+    /// items restored from a snapshot so they can be re-attached.
+    origin: Mutex<Option<SessionOrigin>>,
     pub direction: Direction,
     pub src: String,
     /// The originally-requested destination path.
@@ -194,6 +216,29 @@ pub struct TransferItem {
 }
 
 impl TransferItem {
+    /// The session this transfer runs on.
+    ///
+    /// Returns: the current session id (may change once, when a snapshot-restored
+    /// transfer is re-attached after reconnect).
+    pub fn session_id(&self) -> SessionId {
+        *self.session_id.lock().unwrap()
+    }
+
+    /// Re-point this transfer at a different session.
+    ///
+    /// Arguments: `id` — the newly-connected session to attach to.
+    pub(crate) fn set_session_id(&self, id: SessionId) {
+        *self.session_id.lock().unwrap() = id;
+    }
+
+    /// The stable identity of the owning session, if known.
+    ///
+    /// Returns: the [`SessionOrigin`] recorded when this item was restored from a
+    /// snapshot, or `None` for items enqueued against a live session.
+    pub(crate) fn origin(&self) -> Option<SessionOrigin> {
+        self.origin.lock().unwrap().clone()
+    }
+
     /// Current state.
     ///
     /// Returns: a copy of the item's state as of this call.
@@ -308,7 +353,18 @@ impl QueueShared {
             .iter()
             .filter(|e| e.state().is_active())
             .map(|e| PersistedTransfer {
-                session_id: e.session_id,
+                session_id: e.session_id(),
+                // Prefer the live session's identity; fall back to the one the
+                // item was restored with when its session is already gone.
+                origin: self
+                    .sessions
+                    .get(&e.session_id())
+                    .map(|s| SessionOrigin {
+                        host: s.host.clone(),
+                        port: s.port,
+                        username: s.username.clone(),
+                    })
+                    .or_else(|| e.origin()),
                 direction: e.direction,
                 src: e.src.clone(),
                 dest: e.dest.clone(),
@@ -415,7 +471,8 @@ impl TransferQueue {
             let id = Uuid::new_v4();
             let item = Arc::new(TransferItem {
                 id,
-                session_id: p.session_id,
+                session_id: Mutex::new(p.session_id),
+                origin: Mutex::new(p.origin),
                 direction: p.direction,
                 src: p.src,
                 effective_dest: Mutex::new(p.dest.clone()),
@@ -446,7 +503,8 @@ impl TransferQueue {
             let id = Uuid::new_v4();
             let item = Arc::new(TransferItem {
                 id,
-                session_id: req.session_id,
+                session_id: Mutex::new(req.session_id),
+                origin: Mutex::new(None),
                 direction: req.direction,
                 src: req.src,
                 effective_dest: Mutex::new(req.dest.clone()),
@@ -467,6 +525,30 @@ impl TransferQueue {
         }
         self.shared.notify.notify_one();
         ids
+    }
+
+    /// Re-attach snapshot-restored transfers to a freshly connected session.
+    ///
+    /// A restored transfer keeps the stale `session_id` from the previous run;
+    /// this re-points every paused item whose recorded [`SessionOrigin`] matches
+    /// the new session, so it can actually be resumed.
+    ///
+    /// Arguments: `new_session` — the session that just connected; `origin` —
+    /// its host/port/user identity.
+    /// Returns: how many transfers were re-attached.
+    pub(crate) fn reassociate(&self, new_session: SessionId, origin: &SessionOrigin) -> usize {
+        let mut count = 0;
+        for entry in self.shared.items.iter() {
+            let item = entry.value();
+            if item.state() != TransferState::Paused || item.session_id() == new_session {
+                continue;
+            }
+            if item.origin().as_ref() == Some(origin) {
+                item.set_session_id(new_session);
+                count += 1;
+            }
+        }
+        count
     }
 
     /// Cancel a transfer. A queued/paused item is marked Canceled immediately; a

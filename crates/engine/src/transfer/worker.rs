@@ -270,7 +270,7 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
 
     shared.emit_state(id, TransferState::Running, None);
 
-    let Some(session) = shared.sessions.get(&item.session_id).map(|e| e.clone()) else {
+    let Some(session) = shared.sessions.get(&item.session_id()).map(|e| e.clone()) else {
         shared.emit_state(
             id,
             TransferState::Failed,
@@ -451,7 +451,8 @@ mod tests {
         let id = Uuid::new_v4();
         let item = Arc::new(TransferItem {
             id,
-            session_id: Uuid::new_v4(),
+            session_id: Mutex::new(Uuid::new_v4()),
+            origin: Mutex::new(None),
             direction: Direction::Download,
             src: String::new(),
             dest: String::new(),

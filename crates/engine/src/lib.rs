@@ -45,6 +45,6 @@ pub use shell::{Shell, ShellId};
 pub use transfer::io::{copy_file, CopyOptions};
 pub use watcher::{DirWatcher, DEFAULT_DEBOUNCE};
 pub use transfer::{
-    ConflictResolution, Direction, PersistedTransfer, TransferId, TransferItem, TransferRequest,
-    TransferState,
+    ConflictResolution, Direction, PersistedTransfer, SessionOrigin, TransferId, TransferItem,
+    TransferRequest, TransferState,
 };

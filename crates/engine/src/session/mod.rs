@@ -320,10 +320,22 @@ impl Engine {
         )
         .await?;
         let id = session.id;
+        let origin = crate::transfer::SessionOrigin {
+            host: session.host.clone(),
+            port: session.port,
+            username: session.username.clone(),
+        };
         let session = Arc::new(session);
         // Watch for drops and auto-reconnect.
         session::spawn_supervisor(session.clone());
         self.sessions.insert(id, session);
+        // Transfers restored from a snapshot carry a stale session id (sessions
+        // get a fresh UUID each connect); re-attach the ones belonging to this
+        // host/user so they can be resumed.
+        let restored = self.queue.reassociate(id, &origin);
+        if restored > 0 {
+            tracing::info!(restored, session = %id, "re-attached restored transfers");
+        }
         Ok(id)
     }
 
