@@ -41,6 +41,7 @@ russh-sftp = "=2.3.0"
 # Crypto primitives for host-key fingerprints and hashed known_hosts matching
 base64 = "0.22"
 sha2 = "0.10"
+md-5 = "0.10"
 sha1 = "0.10"
 hmac = "0.12"
 

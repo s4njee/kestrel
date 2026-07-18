@@ -78,6 +78,8 @@ export interface Settings {
    * or unsupported.
    */
   tarAcceleration: boolean;
+  /** Compare local and remote checksums after successful file transfers. */
+  verifyAfterTransfer: boolean;
 }
 
 /** A reply to a prompt (mirrors `PromptReplyDto`). */
@@ -98,7 +100,15 @@ export interface TransferRequest {
 
 /** Transfer lifecycle state string. */
 export type TransferStateStr =
-  "queued" | "running" | "paused" | "awaitingUser" | "done" | "skipped" | "failed" | "canceled";
+  | "queued"
+  | "running"
+  | "paused"
+  | "awaitingUser"
+  | "done"
+  | "skipped"
+  | "failed"
+  | "failedVerification"
+  | "canceled";
 
 /** How to resolve a destination-exists conflict. */
 export type ConflictResolution = "overwrite" | "skip" | "rename" | "resume";

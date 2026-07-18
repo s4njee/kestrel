@@ -105,6 +105,28 @@ async fn await_terminal(
     }
 }
 
+/// Wait for a transfer's terminal state and accompanying error.
+///
+/// Arguments: `events` — engine event receiver; `id` — transfer to follow.
+/// Returns: its terminal state and optional error text.
+async fn await_terminal_with_error(
+    events: &mut broadcast::Receiver<EngineEvent>,
+    id: TransferId,
+) -> (TransferState, Option<String>) {
+    loop {
+        if let Ok(EngineEvent::TransferStateChanged {
+            id: event_id,
+            state,
+            error,
+        }) = events.recv().await
+        {
+            if event_id == id && state.is_terminal() {
+                return (state, error);
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn queue_download_completes_and_writes_content() {
     let server = support::start_password_server("u", "p").await;
@@ -131,6 +153,119 @@ async fn queue_download_completes_and_writes_content() {
     let state = await_terminal(&mut events, ids[0]).await;
     assert_eq!(state, TransferState::Done);
     assert_eq!(tokio::fs::read(&dest).await.unwrap(), vec![42u8; 200_000]);
+}
+
+/// Matching local and remote files finish in Done for both directions.
+#[tokio::test]
+async fn clean_transfer_passes_post_transfer_verification() {
+    let server = support::start_hash_server("u", "p", false).await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.set_integrity_verification(true);
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let session_id = connect(&engine, server.port).await;
+
+    let source = dir.path().join("verified.bin");
+    std::fs::write(&source, b"identical on both sides").unwrap();
+    let transfer_id = engine.enqueue_transfers(vec![TransferRequest {
+        session_id,
+        direction: Direction::Upload,
+        src: source.to_string_lossy().into_owned(),
+        dest: "/verified.bin".to_string(),
+        size: 23,
+    }])[0];
+
+    let (state, error) = await_terminal_with_error(&mut events, transfer_id).await;
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(error, None);
+    assert_eq!(
+        std::fs::read(server.root().join("verified.bin")).unwrap(),
+        b"identical on both sides"
+    );
+
+    // Verify the opposite mapping too: remote source against the atomically
+    // renamed local download destination.
+    let download = dir.path().join("verified-download.bin");
+    let download_id = engine.enqueue_transfers(vec![TransferRequest {
+        session_id,
+        direction: Direction::Download,
+        src: "/verified.bin".to_string(),
+        dest: download.to_string_lossy().into_owned(),
+        size: 23,
+    }])[0];
+    let (state, error) = await_terminal_with_error(&mut events, download_id).await;
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(error, None);
+    assert_eq!(std::fs::read(download).unwrap(), b"identical on both sides");
+}
+
+/// Destination bytes changed after copying produce FailedVerification.
+#[tokio::test]
+async fn corrupted_destination_fails_post_transfer_verification() {
+    // This server mutates the uploaded destination after SFTP closes it but
+    // immediately before sha256sum reads it: deterministic post-copy damage.
+    let server = support::start_hash_server("u", "p", true).await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.set_integrity_verification(true);
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let session_id = connect(&engine, server.port).await;
+
+    let source = dir.path().join("source.bin");
+    std::fs::write(&source, b"expected bytes").unwrap();
+    let transfer_id = engine.enqueue_transfers(vec![TransferRequest {
+        session_id,
+        direction: Direction::Upload,
+        src: source.to_string_lossy().into_owned(),
+        dest: "/corrupted.bin".to_string(),
+        size: 14,
+    }])[0];
+
+    let (state, error) = await_terminal_with_error(&mut events, transfer_id).await;
+    assert_eq!(state, TransferState::FailedVerification);
+    assert_eq!(error.as_deref(), Some("local and remote checksums differ"));
+    assert_ne!(
+        std::fs::read(server.root().join("corrupted.bin")).unwrap(),
+        b"expected bytes"
+    );
+}
+
+/// A restricted server without hash tools preserves the successful transfer.
+#[tokio::test]
+async fn no_remote_hash_tool_skips_verification() {
+    // The ordinary test server rejects all three tool probes with exit 127.
+    let server = support::start_password_server("u", "p").await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(KnownHosts::load(
+        dir.path().join("known_hosts"),
+        &[],
+    )));
+    engine.set_integrity_verification(true);
+    engine.spawn_transfer_workers();
+    let mut events = engine.subscribe();
+    let session_id = connect(&engine, server.port).await;
+
+    let source = dir.path().join("no-tool.bin");
+    std::fs::write(&source, b"still succeeds").unwrap();
+    let transfer_id = engine.enqueue_transfers(vec![TransferRequest {
+        session_id,
+        direction: Direction::Upload,
+        src: source.to_string_lossy().into_owned(),
+        dest: "/no-tool.bin".to_string(),
+        size: 14,
+    }])[0];
+
+    let (state, error) = await_terminal_with_error(&mut events, transfer_id).await;
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(error, None);
 }
 
 #[tokio::test]

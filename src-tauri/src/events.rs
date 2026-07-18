@@ -140,7 +140,8 @@ impl SessionEventDto {
 ///
 /// Arguments: `state` — the engine transfer state.
 /// Returns: the wire value: `"queued"`, `"running"`, `"paused"`,
-/// `"awaitingUser"`, `"done"`, `"skipped"`, `"failed"`, or `"canceled"`.
+/// `"awaitingUser"`, `"done"`, `"skipped"`, `"failed"`,
+/// `"failedVerification"`, or `"canceled"`.
 fn state_str(state: TransferState) -> &'static str {
     match state {
         TransferState::Queued => "queued",
@@ -150,6 +151,7 @@ fn state_str(state: TransferState) -> &'static str {
         TransferState::Done => "done",
         TransferState::Skipped => "skipped",
         TransferState::Failed => "failed",
+        TransferState::FailedVerification => "failedVerification",
         TransferState::Canceled => "canceled",
     }
 }
@@ -191,7 +193,7 @@ pub enum TransferEventDto {
     State {
         id: String,
         /// e.g. "queued" | "running" | "paused" | "awaitingUser" | "done" |
-        /// "skipped" | "failed" | "canceled".
+        /// "skipped" | "failed" | "failedVerification" | "canceled".
         state: String,
         error: Option<String>,
         name: String,

@@ -21,6 +21,7 @@ function s(over: Partial<Settings> = {}): Settings {
     defaultLocalDir: null,
     showHidden: false,
     tarAcceleration: true,
+    verifyAfterTransfer: false,
     ...over,
   };
 }

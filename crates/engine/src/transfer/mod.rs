@@ -1,8 +1,8 @@
 //! transfer — the transfer queue and its state machine.
 //!
-//! A [`TransferItem`] moves through `Queued → Running → (Done | Failed |
-//! Canceled)` in this minimal (E2-S2) form; pause/resume, retries, enumeration,
-//! and conflicts are added in Epic 3. [`TransferQueue`] owns the item registry
+//! A [`TransferItem`] moves through `Queued → Running` to a terminal state;
+//! pause/resume, retries, conflicts, and optional integrity verification extend
+//! that state machine. [`TransferQueue`] owns the item registry
 //! and a pending FIFO; a single worker task (`worker::run_worker`) processes
 //! items, and an aggregator (`worker::run_aggregator`) emits batched progress at
 //! ≤10 Hz. Submodules: `io` (chunked copy), `worker` (scheduler + aggregator),
@@ -118,6 +118,8 @@ pub enum TransferState {
     /// Skipped due to a conflict resolution.
     Skipped,
     Failed,
+    /// File bytes copied successfully, but local and remote checksums differed.
+    FailedVerification,
     Canceled,
 }
 
@@ -131,6 +133,7 @@ impl TransferState {
             TransferState::Done
                 | TransferState::Skipped
                 | TransferState::Failed
+                | TransferState::FailedVerification
                 | TransferState::Canceled
         )
     }
@@ -329,6 +332,8 @@ pub(crate) struct QueueShared {
     pub batch_policy: DashMap<Uuid, ConflictResolution>,
     /// Oneshot channels for conflicts awaiting a user decision.
     pub conflicts: DashMap<TransferId, oneshot::Sender<ConflictResolution>>,
+    /// Whether successful single-file transfers get an optional checksum pass.
+    pub verify_after_transfer: AtomicBool,
     /// Path to persist the queue snapshot to (None = persistence disabled).
     pub persist_path: Mutex<Option<PathBuf>>,
     /// Signalled (coalesced) whenever the queue changes, to trigger a debounced
@@ -443,6 +448,7 @@ impl TransferQueue {
                 default_conflict: Mutex::new(Some(ConflictResolution::Overwrite)),
                 batch_policy: DashMap::new(),
                 conflicts: DashMap::new(),
+                verify_after_transfer: AtomicBool::new(false),
                 persist_path: Mutex::new(None),
                 persist_notify: Notify::new(),
             }),
@@ -709,6 +715,18 @@ impl TransferQueue {
     /// to ask. A batch-wide "apply to all" choice still takes precedence.
     pub fn set_conflict_policy(&self, policy: Option<ConflictResolution>) {
         *self.shared.default_conflict.lock().unwrap() = policy;
+    }
+
+    /// Enable or disable post-transfer integrity verification.
+    ///
+    /// Arguments: `enabled` — when true, successful single-file copies compare
+    /// a remote exec checksum with a local Rust checksum. Unsupported servers
+    /// skip the check and retain the successful transfer state.
+    /// Returns: `()`.
+    pub fn set_integrity_verification(&self, enabled: bool) {
+        self.shared
+            .verify_after_transfer
+            .store(enabled, Ordering::Relaxed);
     }
 
     /// Answer a pending conflict prompt.

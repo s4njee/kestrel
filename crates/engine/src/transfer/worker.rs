@@ -18,6 +18,7 @@ use crate::events::{EngineEvent, FileInfo, ProgressSample};
 use crate::fs::local::LocalFs;
 use crate::fs::sftp::SftpFs;
 use crate::fs::RemoteFs;
+use crate::integrity::{self, Verification};
 use crate::session::Session;
 use crate::tarstream;
 use crate::transfer::io::{copy_file, CopyOptions};
@@ -384,13 +385,46 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
     .await;
 
     match outcome {
-        Ok(()) => shared.emit_state(id, TransferState::Done, None),
+        Ok(()) => finish_success(&shared, &item, &session).await,
         Err(EngineError::Canceled) if item.is_pause_requested() => {
             // Paused, not canceled: keep the partial for resume.
             shared.emit_state(id, TransferState::Paused, None);
         }
         Err(EngineError::Canceled) => shared.emit_state(id, TransferState::Canceled, None),
         Err(e) => shared.emit_state(id, TransferState::Failed, Some(e.to_string())),
+    }
+}
+
+/// Finish a successful copy, optionally comparing local and remote checksums.
+///
+/// Only regular single-file transfers reach this function. A missing exec
+/// channel, missing hash tool, malformed command output, or local hash failure
+/// skips verification and preserves `Done`; only two valid unequal hashes
+/// produce `FailedVerification`.
+///
+/// Arguments: `shared` — queue state and live verification toggle; `item` — the
+/// copied transfer; `session` — its SSH session.
+/// Returns: `()` after emitting the final state.
+async fn finish_success(shared: &QueueShared, item: &TransferItem, session: &Session) {
+    if !shared.verify_after_transfer.load(Ordering::Relaxed) {
+        shared.emit_state(item.id, TransferState::Done, None);
+        return;
+    }
+
+    let dest = item.effective_dest();
+    let (local_path, remote_path) = match item.direction {
+        Direction::Download => (std::path::Path::new(&dest), item.src.as_str()),
+        Direction::Upload => (std::path::Path::new(&item.src), dest.as_str()),
+    };
+    match integrity::verify_file(session, local_path, remote_path).await {
+        Verification::Match | Verification::Skipped => {
+            shared.emit_state(item.id, TransferState::Done, None);
+        }
+        Verification::Mismatch => shared.emit_state(
+            item.id,
+            TransferState::FailedVerification,
+            Some("local and remote checksums differ".to_string()),
+        ),
     }
 }
 
@@ -486,6 +520,7 @@ mod tests {
             default_conflict: Mutex::new(Some(ConflictResolution::Overwrite)),
             batch_policy: dashmap::DashMap::new(),
             conflicts: dashmap::DashMap::new(),
+            verify_after_transfer: std::sync::atomic::AtomicBool::new(false),
             persist_path: Mutex::new(None),
             persist_notify: Notify::new(),
         });

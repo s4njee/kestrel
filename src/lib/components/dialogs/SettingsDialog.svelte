@@ -4,8 +4,8 @@
   Edits a working copy of the current settings and saves via the settings store
   (the backend applies concurrency, conflict policy, and tar acceleration live).
   Covers transfer concurrency, the default conflict policy, an optional default
-  local directory, the show-hidden-files toggle, and tar acceleration for
-  recursive folder transfers.
+  local directory, the show-hidden-files toggle, tar acceleration for recursive
+  folder transfers, and optional post-transfer checksum verification.
 
   Props:
   - onClose: () => void — dismiss the dialog.
@@ -30,6 +30,7 @@
   let defaultLocalDir = $state(start.defaultLocalDir ?? "");
   let showHidden = $state(start.showHidden);
   let tarAcceleration = $state(start.tarAcceleration);
+  let verifyAfterTransfer = $state(start.verifyAfterTransfer);
 
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -58,6 +59,7 @@
       defaultLocalDir: defaultLocalDir.trim() === "" ? null : defaultLocalDir.trim(),
       showHidden,
       tarAcceleration,
+      verifyAfterTransfer,
     };
     try {
       await settings.save(next);
@@ -105,6 +107,14 @@
       Streams a whole folder as one archive when the server has <code>tar</code> — much faster for many
       small files. Falls back to per-file transfers automatically. Per-file conflict prompts don't apply
       in this mode.
+    </p>
+
+    <label class="check">
+      <input type="checkbox" bind:checked={verifyAfterTransfer} /> Verify transferred files
+    </label>
+    <p class="note">
+      Compares a local checksum with <code>sha256sum</code>, <code>shasum</code>, or
+      <code>md5sum</code> on the server. Servers without those tools skip verification.
     </p>
 
     {#if error}

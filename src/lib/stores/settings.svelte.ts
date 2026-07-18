@@ -14,6 +14,7 @@ class SettingsStore {
     defaultLocalDir: null,
     showHidden: false,
     tarAcceleration: true,
+    verifyAfterTransfer: false,
   });
   #loaded = $state(false);
 

@@ -73,6 +73,20 @@ describe("TransferRow", () => {
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
+  it("distinguishes an integrity verification failure", () => {
+    render(TransferRow, {
+      props: {
+        transfer: transfer({
+          state: "failedVerification",
+          error: "local and remote checksums differ",
+        }),
+        onCancel: vi.fn(),
+      },
+    });
+    expect(screen.getByText("verification failed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
   it("renders a done transfer at 100% without a cancel button", () => {
     const { container } = render(TransferRow, {
       props: { transfer: transfer({ state: "done", bytes: 1024 }), onCancel: vi.fn() },

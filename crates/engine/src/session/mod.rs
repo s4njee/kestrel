@@ -255,6 +255,15 @@ impl Engine {
         self.queue.set_conflict_policy(policy);
     }
 
+    /// Enable or disable optional post-transfer checksum verification.
+    ///
+    /// Arguments: `enabled` — true to compare local and remote hashes after
+    /// each successful single-file transfer; unsupported remote tools skip.
+    /// Returns: `()`.
+    pub fn set_integrity_verification(&self, enabled: bool) {
+        self.queue.set_integrity_verification(enabled);
+    }
+
     /// Resolve a pending destination-exists conflict.
     ///
     /// Arguments: `id` — the conflicted transfer; `resolution` — the choice;

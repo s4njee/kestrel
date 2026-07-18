@@ -30,6 +30,7 @@
   let canPause = $derived(transfer.state === "queued" || transfer.state === "running");
   let paused = $derived(transfer.state === "paused");
   let done = $derived(transfer.state === "done");
+  let failed = $derived(transfer.state === "failed" || transfer.state === "failedVerification");
   let percent = $derived(
     transfer.size > 0 ? Math.min(100, Math.round((transfer.bytes / transfer.size) * 100)) : 0,
   );
@@ -48,13 +49,15 @@
   <span class="q-bracket">[</span><span class="q-bar" class:done>{bar}</span><span class="q-bracket"
     >]</span
   >
-  <span class="q-pct" class:done class:failed={transfer.state === "failed"}>{percent}%</span>
+  <span class="q-pct" class:done class:failed>{percent}%</span>
   <span class="q-size">{formatBytes(transfer.size)}</span>
   <span class="q-meta">
     {#if transfer.state === "running"}
       {formatRate(transfer.rateBps)}
     {:else if transfer.state === "failed"}
       <span class="failed" title={transfer.error ?? ""}>failed</span>
+    {:else if transfer.state === "failedVerification"}
+      <span class="failed" title={transfer.error ?? ""}>verification failed</span>
     {:else if transfer.state !== "done"}
       {transfer.state}
     {/if}

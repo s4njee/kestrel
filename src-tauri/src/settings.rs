@@ -2,8 +2,9 @@
 //!
 //! A single versioned `settings.json` under the app config dir holding
 //! preferences that survive restarts: transfer concurrency, the default conflict
-//! resolution, an optional default local directory, and whether to show hidden
-//! (dot) files. The store rewrites the file atomically on every change.
+//! resolution, an optional default local directory, visibility/acceleration
+//! preferences, and optional post-transfer verification. The store rewrites
+//! the file atomically on every change.
 //!
 //! Runtime application (pushing concurrency and the conflict policy into the
 //! engine) lives in `commands/settings.rs`; this module only owns persistence.
@@ -39,6 +40,10 @@ pub struct Settings {
     /// remote host supports it (E8-S2). Off falls back to per-file transfers.
     #[serde(default = "default_true")]
     pub tar_acceleration: bool,
+    /// Whether successful single-file transfers should compare local and remote
+    /// checksums when the remote host offers a supported hash tool (E8-S3).
+    #[serde(default)]
+    pub verify_after_transfer: bool,
 }
 
 /// Serde default for boolean settings that are on unless disabled.
@@ -50,7 +55,7 @@ fn default_true() -> bool {
 
 impl Default for Settings {
     /// Sensible first-run defaults: 3 concurrent transfers, prompt on conflict,
-    /// no pinned local dir, hidden files off, tar acceleration on.
+    /// no pinned local dir, hidden files/verification off, tar acceleration on.
     ///
     /// Returns: the default [`Settings`].
     fn default() -> Self {
@@ -60,6 +65,7 @@ impl Default for Settings {
             default_local_dir: None,
             show_hidden: false,
             tar_acceleration: true,
+            verify_after_transfer: false,
         }
     }
 }
@@ -185,6 +191,7 @@ mod tests {
             default_local_dir: Some("/tmp".into()),
             show_hidden: true,
             tar_acceleration: false,
+            verify_after_transfer: true,
         });
         assert_eq!(saved.concurrency, 6);
         let text = std::fs::read_to_string(&path).unwrap();
@@ -210,6 +217,7 @@ mod tests {
         assert_eq!(loaded.concurrency, 4);
         assert_eq!(loaded.default_conflict, "skip");
         assert!(loaded.show_hidden);
+        assert!(!loaded.verify_after_transfer);
         assert!(
             loaded.tar_acceleration,
             "a missing tar_acceleration must default to enabled"

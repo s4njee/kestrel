@@ -21,6 +21,7 @@ use russh::{Channel, ChannelId, Pty};
 use russh_sftp::protocol::{
     Attrs, Data, File, FileAttributes, Handle, Name, OpenFlags, Status, StatusCode, Version,
 };
+use sha2::{Digest as _, Sha256};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -51,6 +52,17 @@ pub struct ShellObserved {
 #[derive(Default)]
 pub struct ExecObserved {
     pub last: Option<String>,
+}
+
+/// Hash-tool behavior exposed by the test server's exec side channel.
+#[derive(Clone, Copy)]
+enum HashBehavior {
+    /// Every hash probe exits 127 (restricted/no-tool server).
+    Unavailable,
+    /// `sha256sum` hashes the requested file normally.
+    Available,
+    /// Corrupt the requested file immediately before hashing it.
+    CorruptBeforeHash,
 }
 
 /// A running test server. Dropping it aborts the accept loop and removes the
@@ -96,18 +108,44 @@ impl Drop for TestServer {
 
 /// Start a test server on a random port.
 pub async fn start_password_server(user: &str, password: &str) -> TestServer {
-    start_server(user, password, None, 0).await
+    start_server(user, password, None, 0, HashBehavior::Unavailable).await
+}
+
+/// Start a password server with `sha256sum` available to remote exec calls.
+///
+/// Arguments: `user`/`password` — credentials; `corrupt_before_hash` — when
+/// true, mutate the requested remote file immediately before returning its
+/// digest, simulating post-copy corruption.
+/// Returns: the running tempdir-backed server.
+pub async fn start_hash_server(
+    user: &str,
+    password: &str,
+    corrupt_before_hash: bool,
+) -> TestServer {
+    let behavior = if corrupt_before_hash {
+        HashBehavior::CorruptBeforeHash
+    } else {
+        HashBehavior::Available
+    };
+    start_server(user, password, None, 0, behavior).await
 }
 
 /// Start a test server on a specific port (0 = random).
 pub async fn start_password_server_on(user: &str, password: &str, port: u16) -> TestServer {
-    start_server(user, password, None, port).await
+    start_server(user, password, None, port, HashBehavior::Unavailable).await
 }
 
 /// Start a test server that requires keyboard-interactive auth, accepting
 /// `answer` as the single challenge response.
 pub async fn start_ki_server(user: &str, answer: &str) -> TestServer {
-    start_server(user, "", Some(answer.to_string()), 0).await
+    start_server(
+        user,
+        "",
+        Some(answer.to_string()),
+        0,
+        HashBehavior::Unavailable,
+    )
+    .await
 }
 
 /// Start a test server (retries the bind briefly so a just-freed port can be
@@ -117,6 +155,7 @@ async fn start_server(
     password: &str,
     ki_answer: Option<String>,
     port: u16,
+    hash_behavior: HashBehavior,
 ) -> TestServer {
     let host_key = decode_secret_key(TEST_HOST_KEY, None).unwrap();
     let host_key_openssh = host_key.public_key().to_openssh().unwrap();
@@ -159,6 +198,7 @@ async fn start_server(
         root: root_path,
         shell: shell_state.clone(),
         last_exec: exec_state.clone(),
+        hash_behavior,
     };
 
     // Manual accept loop: each connection selects on a shutdown token so that
@@ -208,6 +248,7 @@ struct ServerImpl {
     root: PathBuf,
     shell: Arc<Mutex<ShellObserved>>,
     last_exec: Arc<Mutex<Option<String>>>,
+    hash_behavior: HashBehavior,
 }
 
 impl Server for ServerImpl {
@@ -222,6 +263,7 @@ impl Server for ServerImpl {
             channels: Arc::new(Mutex::new(HashMap::new())),
             shell: self.shell.clone(),
             last_exec: self.last_exec.clone(),
+            hash_behavior: self.hash_behavior,
             shell_channels: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
@@ -235,6 +277,7 @@ struct SessionHandler {
     channels: Arc<Mutex<HashMap<ChannelId, Channel<Msg>>>>,
     shell: Arc<Mutex<ShellObserved>>,
     last_exec: Arc<Mutex<Option<String>>>,
+    hash_behavior: HashBehavior,
     /// Channels that have become interactive shells.
     shell_channels: Arc<Mutex<std::collections::HashSet<ChannelId>>>,
 }
@@ -326,7 +369,34 @@ impl Handler for SessionHandler {
             return Ok(());
         }
 
-        let (stdout, stderr, status) = if let Some(rest) = command.strip_prefix("echo ") {
+        let (stdout, stderr, status) = if command == "command -v sha256sum >/dev/null 2>&1"
+            && !matches!(self.hash_behavior, HashBehavior::Unavailable)
+        {
+            (String::new(), String::new(), 0u32)
+        } else if let Some(word) = command.strip_prefix("sha256sum -- ") {
+            if matches!(self.hash_behavior, HashBehavior::Unavailable) {
+                (
+                    String::new(),
+                    "sh: sha256sum: command not found\n".to_string(),
+                    127u32,
+                )
+            } else if let Some(path) = shell_unquote(word) {
+                let local = self.root.join(path.trim_start_matches('/'));
+                if matches!(self.hash_behavior, HashBehavior::CorruptBeforeHash) {
+                    let _ = std::fs::write(&local, b"deliberately corrupted after transfer");
+                }
+                match std::fs::read(&local) {
+                    Ok(bytes) => (
+                        format!("{:x}  {path}\n", Sha256::digest(bytes)),
+                        String::new(),
+                        0u32,
+                    ),
+                    Err(error) => (String::new(), format!("sha256sum: {error}\n"), 1u32),
+                }
+            } else {
+                (String::new(), "invalid quoted path\n".to_string(), 2u32)
+            }
+        } else if let Some(rest) = command.strip_prefix("echo ") {
             (format!("{rest}\n"), String::new(), 0u32)
         } else if let Some(rest) = command.strip_prefix("fail ") {
             (String::new(), format!("{rest}\n"), 3u32)
@@ -428,6 +498,29 @@ impl Handler for SessionHandler {
         }
         Ok(())
     }
+}
+
+/// Decode the single-quoted shell word emitted by the engine's command builder.
+///
+/// Arguments: `word` — one complete POSIX shell word.
+/// Returns: its literal value, or `None` for malformed/bare syntax.
+fn shell_unquote(word: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = word.chars();
+    while let Some(character) = chars.next() {
+        match character {
+            '\'' => loop {
+                match chars.next() {
+                    Some('\'') => break,
+                    Some(inner) => out.push(inner),
+                    None => return None,
+                }
+            },
+            '\\' => out.push(chars.next()?),
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 /// Tempdir-backed SFTP subsystem handler.

@@ -13,15 +13,37 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { connect, type SessionInfo } from "./commands";
-import { routeSessionEvent } from "./events";
+import { routeSessionEvent, routeTransferEvent } from "./events";
 import { sessions } from "$lib/stores/sessions.svelte";
 import { prompts } from "$lib/stores/prompts.svelte";
+import { toasts } from "$lib/stores/toasts.svelte";
+import { transfers } from "$lib/stores/transfers.svelte";
 
 beforeEach(() => {
   invokeMock.mockReset();
   // Reset store state between tests.
   for (const e of [...sessions.entries]) sessions.remove(e.info.id);
+  for (const toast of [...toasts.items]) toasts.dismiss(toast.id);
+  transfers.clearCompleted();
   prompts.clearHostKey();
+});
+
+describe("routeTransferEvent", () => {
+  it("surfaces a checksum mismatch with a verification-specific toast", () => {
+    routeTransferEvent({
+      type: "state",
+      id: "t-integrity",
+      state: "failedVerification",
+      error: "local and remote checksums differ",
+      name: "payload.bin",
+      size: 100,
+      bytes: 100,
+      direction: "upload",
+    });
+
+    expect(transfers.list.at(-1)?.state).toBe("failedVerification");
+    expect(toasts.items.at(-1)?.message).toBe("Integrity verification failed: payload.bin");
+  });
 });
 
 describe("commands.connect", () => {

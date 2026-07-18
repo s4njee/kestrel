@@ -104,8 +104,11 @@ export function routeTransferEvent(event: TransferEvent): void {
         direction: event.direction,
         error: event.error,
       });
-      // Surface a failed transfer as a transient toast (the row still shows it).
-      if (event.state === "failed" && event.error) {
+      // Integrity failures get a precise message; ordinary failures keep the
+      // existing transfer toast (the queue row remains the source of truth).
+      if (event.state === "failedVerification") {
+        toasts.error(`Integrity verification failed: ${event.name}`);
+      } else if (event.state === "failed" && event.error) {
         toasts.error(`Transfer failed: ${event.name} — ${event.error}`);
       }
       break;
