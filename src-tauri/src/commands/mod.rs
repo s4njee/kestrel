@@ -9,6 +9,7 @@
 
 pub mod bookmark;
 pub mod browse;
+pub mod edit;
 pub mod fileops;
 pub mod local;
 pub mod session;

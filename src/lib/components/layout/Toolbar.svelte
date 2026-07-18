@@ -11,16 +11,22 @@
   - connected: boolean          — whether a remote session is active.
   - host?: string               — active host label (e.g. "user@host:22").
   - meta?: string               — session-detail chip (e.g. "sftp · key").
+  - editSessions?: EditSession[] — managed remote files open in local editors.
   - canUpload/canDownload?: boolean — enable the transfer links.
   - onConnect/onUpload/onDownload/onRefresh/onQueue/onSettings?: () => void
 -->
 <script lang="ts">
+  import type { EditSession } from "$lib/ipc/commands";
+  import EditSessionsChip from "./EditSessionsChip.svelte";
+
   interface Props {
     connected: boolean;
     host?: string;
     meta?: string;
     canUpload?: boolean;
     canDownload?: boolean;
+    editSessions?: EditSession[];
+    onCloseEdit?: (id: string) => void;
     onConnect?: () => void;
     onUpload?: () => void;
     onDownload?: () => void;
@@ -35,6 +41,8 @@
     meta = "sftp",
     canUpload = false,
     canDownload = false,
+    editSessions = [],
+    onCloseEdit,
     onConnect,
     onUpload,
     onDownload,
@@ -58,6 +66,9 @@
     <button class="link" onclick={() => onRefresh?.()}>[refresh]</button>
     <button class="link" onclick={() => onQueue?.()}>[queue]</button>
     <button class="link" onclick={() => onSettings?.()}>[settings]</button>
+    {#if editSessions.length > 0}
+      <EditSessionsChip sessions={editSessions} onClose={(id) => onCloseEdit?.(id)} />
+    {/if}
     <span class="live" class:on={connected}>● {connected ? "live" : "idle"}</span>
   </span>
 </header>

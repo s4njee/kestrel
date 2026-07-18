@@ -18,6 +18,7 @@ use dashmap::DashMap;
 use tokio::sync::{broadcast, Mutex};
 
 use crate::auth::ConnectParams;
+use crate::edit::{EditManager, EditSessionId, EditSessionInfo};
 use crate::error::{EngineError, Result};
 use crate::events::{EngineEvent, Prompts, SessionId};
 use crate::fs::local::LocalFs;
@@ -73,6 +74,8 @@ pub struct Engine {
     queue: TransferQueue,
     /// Live interactive shells, keyed by shell id.
     shells: Arc<DashMap<crate::shell::ShellId, crate::shell::Shell>>,
+    /// Managed local copies of remote files opened for edit-and-sync.
+    edits: EditManager,
     /// Whether directory transfers may use tar acceleration (E8-S2).
     tar_acceleration: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -88,6 +91,7 @@ impl Engine {
         let (events_tx, _rx) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         let sessions = Arc::new(DashMap::new());
         let queue = TransferQueue::new(sessions.clone(), events_tx.clone());
+        let edits = EditManager::new(sessions.clone(), events_tx.clone());
         Engine {
             events_tx,
             prompts: Prompts::new(),
@@ -95,6 +99,7 @@ impl Engine {
             sessions,
             queue,
             shells: Arc::new(DashMap::new()),
+            edits,
             tar_acceleration: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
@@ -381,6 +386,8 @@ impl Engine {
     pub fn disconnect(&self, id: SessionId) -> Result<()> {
         match self.sessions.remove(&id) {
             Some((_, session)) => {
+                // Managed edit sessions cannot outlive their SSH session.
+                self.edits.close_for_session(id);
                 // Tear down this session's shells before dropping the connection.
                 self.close_session_shells(id);
                 // Stop the supervisor so it releases the session and the
@@ -396,6 +403,33 @@ impl Engine {
         }
     }
 
+    /// Download a remote file into a managed temp directory and watch it.
+    ///
+    /// Arguments: `session_id` — owning SSH session; `remote_path` — regular
+    /// remote file to edit.
+    /// Returns: a ready edit-session snapshot whose local path can be opened by
+    /// the shell's OS opener plugin.
+    pub async fn start_edit_session(
+        &self,
+        session_id: SessionId,
+        remote_path: &str,
+    ) -> Result<EditSessionInfo> {
+        self.edits.start(session_id, remote_path).await
+    }
+
+    /// Close a managed edit session and release its temp directory.
+    ///
+    /// Arguments: `id` — edit session id; unknown ids are a no-op.
+    pub fn close_edit_session(&self, id: EditSessionId) {
+        self.edits.close(id);
+    }
+
+    /// Snapshot all live edit sessions.
+    ///
+    /// Returns: current edit sessions in unspecified order.
+    pub fn edit_sessions(&self) -> Vec<EditSessionInfo> {
+        self.edits.list()
+    }
 
     /// Open an interactive shell (PTY) on a session.
     ///

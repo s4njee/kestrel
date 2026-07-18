@@ -16,6 +16,7 @@
   import { bookmarks } from "$lib/stores/bookmarks.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { logs } from "$lib/stores/logs.svelte";
+  import { edits } from "$lib/stores/edits.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents, setLocalDirChangedHandler } from "$lib/ipc/events";
   import { respondPrompt } from "$lib/ipc/commands";
@@ -32,6 +33,9 @@
     deleteEntries,
     makeDir,
     setPermissions,
+    startEditSession,
+    closeEditSession,
+    listEditSessions,
     type Bookmark,
     type SessionInfo,
     type TransferDirection,
@@ -44,6 +48,7 @@
   import { parentPath, joinPath } from "$lib/utils/path";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { openPath } from "@tauri-apps/plugin-opener";
   import ContextMenu, { type MenuItem } from "$lib/components/common/ContextMenu.svelte";
   import PermissionsDialog from "$lib/components/dialogs/PermissionsDialog.svelte";
   import DeleteConfirmDialog from "$lib/components/dialogs/DeleteConfirmDialog.svelte";
@@ -147,6 +152,9 @@
     try {
       logs.status("kestrel ready — use [connect] to open a session", true);
       void initSessionEvents();
+      listEditSessions()
+        .then((live) => edits.replace(live))
+        .catch(() => {});
       // Auto-refresh the local pane when its directory changes externally.
       setLocalDirChangedHandler((path) => {
         if (localPane.path === path) void loadLocal(path);
@@ -393,6 +401,45 @@
   }
 
   /**
+   * Download a remote file into its managed edit session and open it with the
+   * operating system's default editor/application.
+   *
+   * @param entry - regular remote file to edit.
+   */
+  async function editRemoteFile(entry: DirEntry): Promise<void> {
+    const sessionId = sessions.active?.info.id;
+    if (!sessionId || entry.kind !== "file") return;
+    let startedId: string | null = null;
+    try {
+      const edit = await startEditSession(sessionId, entry.path);
+      startedId = edit.id;
+      edits.upsert(edit);
+      await openPath(edit.localPath);
+      logs.status(`Editing ${entry.path}; saves sync automatically`, true);
+    } catch (error) {
+      if (startedId) {
+        void closeEditSession(startedId).catch(() => {});
+        edits.remove(startedId);
+      }
+      toasts.error(`Could not edit ${entry.name}: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Stop a managed edit session and remove it from the indicator immediately.
+   *
+   * @param id - edit session id.
+   */
+  async function closeManagedEdit(id: string): Promise<void> {
+    try {
+      await closeEditSession(id);
+      edits.remove(id);
+    } catch (error) {
+      toasts.error(`Could not close edit session: ${String(error)}`);
+    }
+  }
+
+  /**
    * Rename an entry via an input dialog.
    *
    * @param kind - the pane the entry belongs to.
@@ -522,6 +569,11 @@
         : { label: "Upload", action: upload };
     return [
       { label: "Open", action: () => openInPane(kind, entry), disabled: entry.kind !== "dir" },
+      {
+        label: "Edit",
+        action: () => void editRemoteFile(entry),
+        disabled: kind !== "remote" || entry.kind !== "file" || !connected,
+      },
       { separator: true },
       { ...transfer, disabled: !connected },
       { separator: true },
@@ -597,6 +649,8 @@
     meta={metaChip}
     {canUpload}
     {canDownload}
+    editSessions={edits.list}
+    onCloseEdit={(id) => void closeManagedEdit(id)}
     {onConnect}
     onUpload={upload}
     onDownload={download}

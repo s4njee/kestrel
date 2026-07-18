@@ -20,9 +20,10 @@
 //! - [`watcher`]  — local-directory filesystem watching
 
 pub mod auth;
+pub mod edit;
 pub mod error;
-pub mod exec;
 pub mod events;
+pub mod exec;
 pub mod fs;
 pub mod hostkey;
 pub mod integrity;
@@ -34,11 +35,12 @@ pub mod transfer;
 pub mod watcher;
 
 pub use auth::{AuthMethod, ConnectParams, Secret};
+pub use edit::{EditSessionId, EditSessionInfo, EditState};
 pub use error::{EngineError, ErrorClass, Result};
-pub use exec::{ExecOutput, DEFAULT_EXEC_TIMEOUT};
 pub use events::{
     AuthPromptField, EngineEvent, FileInfo, ProgressSample, PromptReply, Prompts, SessionId,
 };
+pub use exec::{ExecOutput, DEFAULT_EXEC_TIMEOUT};
 pub use fs::local::LocalFs;
 pub use fs::sftp::SftpFs;
 pub use fs::{
@@ -49,8 +51,8 @@ pub use pathsafe::{safe_component, safe_join};
 pub use session::{Engine, Session};
 pub use shell::{Shell, ShellId};
 pub use transfer::io::{copy_file, CopyOptions};
-pub use watcher::{DirWatcher, DEFAULT_DEBOUNCE};
 pub use transfer::{
     ConflictResolution, Direction, PersistedTransfer, SessionOrigin, TransferId, TransferItem,
     TransferKind, TransferRequest, TransferState,
 };
+pub use watcher::{DirWatcher, DEFAULT_DEBOUNCE};

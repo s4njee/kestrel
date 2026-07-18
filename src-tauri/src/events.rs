@@ -49,6 +49,12 @@ pub enum SessionEventDto {
     /// An interactive shell ended.
     #[serde(rename_all = "camelCase")]
     ShellClosed { shell_id: String },
+    /// A managed remote-file edit session changed state.
+    #[serde(rename_all = "camelCase")]
+    EditSessionChanged { session: crate::dto::EditSessionDto },
+    /// A managed edit session closed.
+    #[serde(rename_all = "camelCase")]
+    EditSessionClosed { edit_id: String },
 }
 
 /// One field of a keyboard-interactive challenge (mirrors the TS shape).
@@ -71,6 +77,16 @@ impl SessionEventDto {
             EngineEvent::TransferStateChanged { .. }
             | EngineEvent::TransferProgress { .. }
             | EngineEvent::TransferConflict { .. } => None,
+            EngineEvent::EditSessionChanged { session } => {
+                Some(SessionEventDto::EditSessionChanged {
+                    session: crate::dto::EditSessionDto::from(session),
+                })
+            }
+            EngineEvent::EditSessionClosed { edit_id } => {
+                Some(SessionEventDto::EditSessionClosed {
+                    edit_id: edit_id.to_string(),
+                })
+            }
             EngineEvent::SessionConnected { session_id } => Some(SessionEventDto::ConnectionState {
                 session_id: session_id.to_string(),
                 state: "connected".to_string(),

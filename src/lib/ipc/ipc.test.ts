@@ -18,6 +18,7 @@ import { sessions } from "$lib/stores/sessions.svelte";
 import { prompts } from "$lib/stores/prompts.svelte";
 import { toasts } from "$lib/stores/toasts.svelte";
 import { transfers } from "$lib/stores/transfers.svelte";
+import { edits } from "$lib/stores/edits.svelte";
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -25,6 +26,7 @@ beforeEach(() => {
   for (const e of [...sessions.entries]) sessions.remove(e.info.id);
   for (const toast of [...toasts.items]) toasts.dismiss(toast.id);
   transfers.clearCompleted();
+  edits.replace([]);
   prompts.clearHostKey();
 });
 
@@ -69,6 +71,24 @@ describe("commands.connect", () => {
 });
 
 describe("routeSessionEvent", () => {
+  it("routes edit-session changes and closes into the edits store", () => {
+    routeSessionEvent({
+      type: "editSessionChanged",
+      session: {
+        id: "e1",
+        sessionId: "s1",
+        remotePath: "/note.txt",
+        localPath: "/tmp/note.txt",
+        state: "watching",
+        error: null,
+      },
+    });
+    expect(edits.list[0].remotePath).toBe("/note.txt");
+
+    routeSessionEvent({ type: "editSessionClosed", editId: "e1" });
+    expect(edits.count).toBe(0);
+  });
+
   it("routes connectionState disconnected by removing the session", () => {
     sessions.add({ id: "s1", host: "h", port: 22, username: "u" });
     expect(sessions.entries).toHaveLength(1);

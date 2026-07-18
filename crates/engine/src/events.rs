@@ -72,6 +72,12 @@ pub enum EngineEvent {
         existing: FileInfo,
         incoming: FileInfo,
     },
+    /// A managed remote-file edit session changed state.
+    EditSessionChanged {
+        session: crate::edit::EditSessionInfo,
+    },
+    /// A managed edit session was closed and its temp directory released.
+    EditSessionClosed { edit_id: crate::edit::EditSessionId },
     /// The server presented a host key that needs a user decision (TOFU).
     ///
     /// `changed` distinguishes an unknown host (false) from a key that differs

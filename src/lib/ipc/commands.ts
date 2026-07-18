@@ -26,6 +26,19 @@ export interface SessionInfo {
   username: string;
 }
 
+/** Lifecycle state of a managed remote-file edit session. */
+export type EditSessionState = "watching" | "uploading" | "conflict" | "error";
+
+/** Managed local copy of a remote file opened for editing. */
+export interface EditSession {
+  id: string;
+  sessionId: string;
+  remotePath: string;
+  localPath: string;
+  state: EditSessionState;
+  error: string | null;
+}
+
 /** Auth choice sent with a connect request (mirrors `AuthDto`). */
 export type Auth =
   | { method: "password"; password: string }
@@ -161,6 +174,8 @@ export type SessionEvent =
       fields: { text: string; echo: boolean }[];
     }
   | { type: "localDirChanged"; path: string }
+  | { type: "editSessionChanged"; session: EditSession }
+  | { type: "editSessionClosed"; editId: string }
   /** Raw shell output; `data` is base64 (terminal bytes are not valid UTF-8). */
   | { type: "shellData"; shellId: string; data: string }
   | { type: "shellClosed"; shellId: string };
@@ -182,6 +197,31 @@ export function connect(request: ConnectRequest): Promise<SessionInfo> {
  */
 export function disconnect(sessionId: string): Promise<void> {
   return invoke("disconnect", { sessionId });
+}
+
+/**
+ * Download a remote file into a watched managed temp directory.
+ *
+ * @param sessionId - connected SSH session.
+ * @param remotePath - regular remote file to edit.
+ * @returns the ready edit session; open its localPath with the opener plugin.
+ */
+export function startEditSession(sessionId: string, remotePath: string): Promise<EditSession> {
+  return invoke("start_edit_session", { sessionId, remotePath });
+}
+
+/**
+ * Close an edit session and release its managed local copy.
+ *
+ * @param editId - edit session id.
+ */
+export function closeEditSession(editId: string): Promise<void> {
+  return invoke("close_edit_session", { editId });
+}
+
+/** List the live managed edit sessions. */
+export function listEditSessions(): Promise<EditSession[]> {
+  return invoke("list_edit_sessions");
 }
 
 /**

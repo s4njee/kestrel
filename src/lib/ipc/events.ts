@@ -17,6 +17,7 @@ import { transfers } from "$lib/stores/transfers.svelte";
 import { conflicts } from "$lib/stores/conflicts.svelte";
 import { toasts } from "$lib/stores/toasts.svelte";
 import { logs } from "$lib/stores/logs.svelte";
+import { edits } from "$lib/stores/edits.svelte";
 
 /** Handler invoked with decoded shell output (set by the terminal component). */
 let shellDataHandler: ((shellId: string, data: Uint8Array) => void) | null = null;
@@ -68,6 +69,7 @@ export function routeSessionEvent(event: SessionEvent): void {
       else if (event.state === "disconnected")
         logs.status(`Disconnected${event.reason ? ` — ${event.reason}` : ""}`);
       else if (event.state === "connected") logs.status("Connection re-established", true);
+      if (event.state === "disconnected") edits.removeForSession(event.sessionId);
       break;
     case "hostKeyPrompt":
       prompts.setHostKeyPrompt(event);
@@ -77,6 +79,17 @@ export function routeSessionEvent(event: SessionEvent): void {
       break;
     case "localDirChanged":
       localDirChangedHandler?.(event.path);
+      break;
+    case "editSessionChanged":
+      edits.upsert(event.session);
+      if (event.session.state === "conflict") {
+        toasts.error(`Edit conflict: ${event.session.remotePath} changed remotely`);
+      } else if (event.session.state === "error" && event.session.error) {
+        toasts.error(`Edit sync failed: ${event.session.error}`);
+      }
+      break;
+    case "editSessionClosed":
+      edits.remove(event.editId);
       break;
     case "shellData":
       shellDataHandler?.(event.shellId, fromBase64(event.data));

@@ -391,7 +391,7 @@ only hard dependency is E8-S1, the shared enabler.
     toast. Skip silently when no hash tool exists.
   - Accept: engine test with a deliberately corrupted destination detects the
     mismatch; clean transfer verifies; no-tool server skips.
-- [ ] **E8-S4 — Edit-and-sync (open remote files in your editor)** (M)
+- [x] **E8-S4 — Edit-and-sync (open remote files in your editor)** (M)
   - Do: "Edit" on a remote file: download to a managed temp dir, open with the
     OS default app (opener plugin), watch it with the existing `DirWatcher`, and
     auto-re-upload on every save (debounced), with an indicator chip listing
@@ -591,6 +591,8 @@ lib/utils/{path,format}.ts
 ## Deviations
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E8-S4 — edit-and-sync verification**: each remote file gets a dedicated managed `TempDir`; the initial copy uses the existing atomic download path, then the existing 300 ms `DirWatcher` drives serialized uploads through pooled SFTP channels. Every save stats the remote file and compares its exact mtime with the last downloaded/uploaded baseline; a mismatch moves the session to `Conflict` without overwriting remote data. The Tauri layer exposes only path/state metadata, opens the local path through the already-configured opener plugin, and the toolbar's `[edit:N]` chip lists watching/uploading/conflict/error sessions with a close action. Tempdir-driven engine tests prove save→reupload, duplicate-session reuse, conflict preservation, and cleanup; store/event/component tests cover the indicator lifecycle. A real-editor/native-window click-through was not possible in this environment, so that acceptance check remains manual.
 
 - **E8-S3 — post-transfer integrity verification**: added an opt-in `verifyAfterTransfer` setting (default off, backward-compatible serde default) that is applied live to the queue. After a successful single-file copy, the worker probes `sha256sum`, `shasum -a 256`, then `md5sum` through E8-S1's isolated exec channel and hashes the corresponding local file in a blocking Rust task; remote paths are POSIX single-quote escaped before interpolation. A valid unequal pair becomes the distinct terminal `FailedVerification` / `failedVerification` state, shown as “verification failed” in the queue with an integrity-specific toast. Exec refusal, no supported tool, command/output failure, or local-read failure skips quietly and preserves `Done`, keeping the pure-SFTP path fully functional. Tar directory transfers deliberately skip this file-level check because one archive queue item does not map to one remote file. Integration coverage verifies clean upload **and download**, deterministic post-copy destination corruption, and a restricted/no-tool server; checksum parsing and shell quoting have unit coverage.
 

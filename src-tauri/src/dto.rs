@@ -7,7 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 use sftpapp_engine::{
-    AuthMethod, ConnectParams, DirEntry, Direction, EntryKind, PromptReply, Secret, TransferRequest,
+    AuthMethod, ConnectParams, DirEntry, Direction, EditSessionInfo, EntryKind, PromptReply,
+    Secret, TransferRequest,
 };
 use uuid::Uuid;
 
@@ -64,6 +65,36 @@ pub struct SessionInfoDto {
     pub host: String,
     pub port: u16,
     pub username: String,
+}
+
+/// Managed remote-file edit session returned to the webview.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditSessionDto {
+    pub id: String,
+    pub session_id: String,
+    pub remote_path: String,
+    pub local_path: String,
+    /// "watching" | "uploading" | "conflict" | "error".
+    pub state: String,
+    pub error: Option<String>,
+}
+
+impl From<EditSessionInfo> for EditSessionDto {
+    /// Convert an engine edit-session snapshot into its IPC shape.
+    ///
+    /// Arguments: `info` — engine snapshot.
+    /// Returns: the camelCase webview DTO.
+    fn from(info: EditSessionInfo) -> Self {
+        EditSessionDto {
+            id: info.id.to_string(),
+            session_id: info.session_id.to_string(),
+            remote_path: info.remote_path,
+            local_path: info.local_path.to_string_lossy().into_owned(),
+            state: info.state.as_str().to_string(),
+            error: info.error,
+        }
+    }
 }
 
 /// Inbound auth choice. Secrets are consumed into zeroizing wrappers and never
@@ -212,5 +243,22 @@ mod tests {
         let json = r#"{"type":"hostKey","accept":true}"#;
         let reply: PromptReplyDto = serde_json::from_str(json).unwrap();
         assert!(matches!(reply, PromptReplyDto::HostKey { accept: true }));
+    }
+
+    /// Edit-session DTOs use camelCase paths/state fields.
+    #[test]
+    fn edit_session_serializes_camel_case() {
+        let dto = EditSessionDto {
+            id: "e".into(),
+            session_id: "s".into(),
+            remote_path: "/note.txt".into(),
+            local_path: "/tmp/note.txt".into(),
+            state: "watching".into(),
+            error: None,
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("\"sessionId\":\"s\""));
+        assert!(json.contains("\"remotePath\":\"/note.txt\""));
+        assert!(json.contains("\"localPath\":\"/tmp/note.txt\""));
     }
 }
