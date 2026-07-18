@@ -24,6 +24,7 @@ pub mod fs;
 pub mod hostkey;
 pub mod pathsafe;
 pub mod session;
+pub mod shell;
 pub mod transfer;
 pub mod watcher;
 
@@ -40,6 +41,7 @@ pub use fs::{
 pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
 pub use pathsafe::{safe_component, safe_join};
 pub use session::{Engine, Session};
+pub use shell::{Shell, ShellId};
 pub use transfer::io::{copy_file, CopyOptions};
 pub use watcher::{DirWatcher, DEFAULT_DEBOUNCE};
 pub use transfer::{

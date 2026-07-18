@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use russh::keys::decode_secret_key;
 use russh::server::{Auth, ChannelOpenHandle, Config, Handler, Msg, Server, Session};
-use russh::{Channel, ChannelId};
+use russh::{Channel, ChannelId, Pty};
 use russh_sftp::protocol::{
     Attrs, Data, File, FileAttributes, Handle, Name, OpenFlags, Status, StatusCode, Version,
 };
@@ -35,6 +35,18 @@ AAAEBDNPXJsLoMA52RLs3eCexBsx3Cr1v4WNw1jt/QIt41h1XQp4PMu4UQVfBeV0du5I3P
 yR/QYmlnpxV834UT/rL0AAAAFXNmdHBhcHAtdGVzdC1ob3N0LWtleQ==
 -----END OPENSSH PRIVATE KEY-----";
 
+/// What the server observed about a client's PTY/shell requests, so tests can
+/// assert the SSH-level exchange (not just the bytes echoed back).
+#[derive(Default)]
+pub struct ShellObserved {
+    /// Size from the initial `pty-req`.
+    pub pty_size: Option<(u32, u32)>,
+    /// Size from the most recent `window-change`.
+    pub window_size: Option<(u32, u32)>,
+    /// Whether a `shell` request was made.
+    pub shell_started: bool,
+}
+
 /// A running test server. Dropping it aborts the accept loop and removes the
 /// tempdir root.
 pub struct TestServer {
@@ -43,6 +55,7 @@ pub struct TestServer {
     /// seeding a client's known_hosts in changed-key tests.
     pub host_key_openssh: String,
     root: tempfile::TempDir,
+    shell: Arc<Mutex<ShellObserved>>,
     shutdown: CancellationToken,
     _task: tokio::task::JoinHandle<()>,
 }
@@ -51,6 +64,12 @@ impl TestServer {
     /// The server's filesystem root; populate it before connecting.
     pub fn root(&self) -> &Path {
         self.root.path()
+    }
+
+    /// What the server saw of the client's PTY/shell requests.
+    pub async fn shell_observed(&self) -> (Option<(u32, u32)>, Option<(u32, u32)>, bool) {
+        let o = self.shell.lock().await;
+        (o.pty_size, o.window_size, o.shell_started)
     }
 }
 
@@ -119,11 +138,13 @@ async fn start_server(
     };
     let port = listener.local_addr().unwrap().port();
 
+    let shell_state = Arc::new(Mutex::new(ShellObserved::default()));
     let mut server = ServerImpl {
         user: user.to_string(),
         password: password.to_string(),
         ki_answer,
         root: root_path,
+        shell: shell_state.clone(),
     };
 
     // Manual accept loop: each connection selects on a shutdown token so that
@@ -158,6 +179,7 @@ async fn start_server(
         port,
         host_key_openssh,
         root,
+        shell: shell_state,
         shutdown,
         _task: task,
     }
@@ -169,6 +191,7 @@ struct ServerImpl {
     password: String,
     ki_answer: Option<String>,
     root: PathBuf,
+    shell: Arc<Mutex<ShellObserved>>,
 }
 
 impl Server for ServerImpl {
@@ -181,6 +204,8 @@ impl Server for ServerImpl {
             ki_answer: self.ki_answer.clone(),
             root: self.root.clone(),
             channels: Arc::new(Mutex::new(HashMap::new())),
+            shell: self.shell.clone(),
+            shell_channels: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
 }
@@ -191,6 +216,9 @@ struct SessionHandler {
     ki_answer: Option<String>,
     root: PathBuf,
     channels: Arc<Mutex<HashMap<ChannelId, Channel<Msg>>>>,
+    shell: Arc<Mutex<ShellObserved>>,
+    /// Channels that have become interactive shells.
+    shell_channels: Arc<Mutex<std::collections::HashSet<ChannelId>>>,
 }
 
 impl Handler for SessionHandler {
@@ -252,6 +280,68 @@ impl Handler for SessionHandler {
         // reply handle rejects it.
         reply.accept().await;
         self.channels.lock().await.insert(channel.id(), channel);
+        Ok(())
+    }
+
+
+    #[allow(clippy::too_many_arguments)]
+    async fn pty_request(
+        &mut self,
+        channel: ChannelId,
+        _term: &str,
+        col_width: u32,
+        row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        _modes: &[(Pty, u32)],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.shell.lock().await.pty_size = Some((col_width, row_height));
+        session.channel_success(channel)?;
+        Ok(())
+    }
+
+    async fn shell_request(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.shell.lock().await.shell_started = true;
+        self.shell_channels.lock().await.insert(channel);
+        session.channel_success(channel)?;
+        // A prompt, so the client sees output the moment the shell opens.
+        session.data(channel, b"$ ".to_vec())?;
+        Ok(())
+    }
+
+    async fn window_change_request(
+        &mut self,
+        channel: ChannelId,
+        col_width: u32,
+        row_height: u32,
+        _pix_width: u32,
+        _pix_height: u32,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.shell.lock().await.window_size = Some((col_width, row_height));
+        session.channel_success(channel)?;
+        Ok(())
+    }
+
+    /// A deliberately dumb shell: echo whatever is typed (as a real PTY does),
+    /// and answer a newline with a fresh prompt.
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if self.shell_channels.lock().await.contains(&channel) {
+            session.data(channel, data.to_vec())?;
+            if data.contains(&b'\n') || data.contains(&b'\r') {
+                session.data(channel, b"\r\n$ ".to_vec())?;
+            }
+        }
         Ok(())
     }
 

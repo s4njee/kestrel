@@ -57,6 +57,8 @@ pub async fn enqueue_directory(
 /// Cancel a transfer.
 ///
 /// Arguments: `transfer_id` — the transfer to cancel.
+/// Returns: `()`. Errors only if `transfer_id` is not a valid UUID; cancelling
+/// an unknown transfer is a no-op.
 #[tauri::command]
 pub async fn cancel_transfer(state: State<'_, AppState>, transfer_id: String) -> CmdResult<()> {
     let id = Uuid::parse_str(&transfer_id).map_err(|e| e.to_string())?;
@@ -65,6 +67,10 @@ pub async fn cancel_transfer(state: State<'_, AppState>, transfer_id: String) ->
 }
 
 /// Pause a transfer (resumable from its current offset).
+///
+/// Arguments: `transfer_id` — the transfer to pause.
+/// Returns: `()`. Errors only if `transfer_id` is not a valid UUID; pausing an
+/// unknown transfer is a no-op.
 #[tauri::command]
 pub async fn pause_transfer(state: State<'_, AppState>, transfer_id: String) -> CmdResult<()> {
     let id = Uuid::parse_str(&transfer_id).map_err(|e| e.to_string())?;
@@ -73,6 +79,10 @@ pub async fn pause_transfer(state: State<'_, AppState>, transfer_id: String) -> 
 }
 
 /// Resume a paused transfer.
+///
+/// Arguments: `transfer_id` — the transfer to resume.
+/// Returns: `()`. Errors only if `transfer_id` is not a valid UUID; resuming an
+/// unknown transfer is a no-op.
 #[tauri::command]
 pub async fn resume_transfer(state: State<'_, AppState>, transfer_id: String) -> CmdResult<()> {
     let id = Uuid::parse_str(&transfer_id).map_err(|e| e.to_string())?;
@@ -81,6 +91,9 @@ pub async fn resume_transfer(state: State<'_, AppState>, transfer_id: String) ->
 }
 
 /// Pause all active transfers.
+///
+/// Arguments: none (beyond managed state).
+/// Returns: `()`. Infallible.
 #[tauri::command]
 pub async fn pause_all_transfers(state: State<'_, AppState>) -> CmdResult<()> {
     state.engine.pause_all_transfers();
@@ -91,6 +104,8 @@ pub async fn pause_all_transfers(state: State<'_, AppState>) -> CmdResult<()> {
 ///
 /// Arguments: `transfer_id`; `resolution` ("overwrite"/"skip"/"rename"/
 /// "resume"); `apply_to_all` — apply to the rest of the batch too.
+/// Returns: `()`. Errors if `transfer_id` is not a valid UUID or `resolution` is
+/// not one of the four known values.
 #[tauri::command]
 pub async fn resolve_conflict(
     state: State<'_, AppState>,
@@ -111,6 +126,9 @@ pub async fn resolve_conflict(
 }
 
 /// Remove completed/failed/canceled transfers from the queue.
+///
+/// Arguments: none (beyond managed state).
+/// Returns: `()`. Infallible.
 #[tauri::command]
 pub async fn clear_completed(state: State<'_, AppState>) -> CmdResult<()> {
     state.engine.clear_completed();
@@ -120,6 +138,7 @@ pub async fn clear_completed(state: State<'_, AppState>) -> CmdResult<()> {
 /// Set the maximum number of concurrently-running transfers (applies live).
 ///
 /// Arguments: `concurrency` — desired concurrency (clamped to at least 1).
+/// Returns: `()`. Infallible.
 #[tauri::command]
 pub async fn set_concurrency(state: State<'_, AppState>, concurrency: usize) -> CmdResult<()> {
     state.engine.set_concurrency(concurrency);

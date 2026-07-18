@@ -87,6 +87,13 @@ pub enum EngineEvent {
         existing_fingerprint: Option<String>,
     },
     /// A keyboard-interactive auth challenge needs user responses.
+    /// Raw output from an interactive shell (stdout+stderr, verbatim bytes).
+    ShellData {
+        shell_id: crate::shell::ShellId,
+        data: Vec<u8>,
+    },
+    /// An interactive shell ended (peer hung up, or we closed it).
+    ShellClosed { shell_id: crate::shell::ShellId },
     AuthPrompt {
         prompt_id: Uuid,
         instructions: String,
@@ -114,6 +121,9 @@ pub struct Prompts {
 
 impl Prompts {
     /// Create an empty registry.
+    ///
+    /// Returns: a `Prompts` with no pending entries. Clones of the returned
+    /// handle share the same underlying registry.
     pub fn new() -> Self {
         Self::default()
     }

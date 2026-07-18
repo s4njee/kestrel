@@ -26,6 +26,10 @@ pub struct DirEntryDto {
 }
 
 /// String tag for an [`EntryKind`].
+///
+/// Arguments: `kind` — the engine entry kind.
+/// Returns: `"file"`, `"dir"`, or `"symlink"` — the wire value of
+/// [`DirEntryDto::kind`].
 fn kind_str(kind: EntryKind) -> &'static str {
     match kind {
         EntryKind::File => "file",

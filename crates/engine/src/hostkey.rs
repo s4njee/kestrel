@@ -40,6 +40,11 @@ pub struct HostKey {
 
 impl HostKey {
     /// Construct a host key from its algorithm and wire blob.
+    ///
+    /// Arguments: `algorithm` — the SSH algorithm name (e.g. `"ssh-ed25519"`);
+    /// `blob` — the public-key wire encoding, already base64-decoded.
+    /// Returns: the `HostKey`. Neither field is validated; a blob that does not
+    /// match `algorithm` is stored as given.
     pub fn new(algorithm: impl Into<String>, blob: Vec<u8>) -> Self {
         HostKey {
             algorithm: algorithm.into(),
@@ -56,6 +61,10 @@ impl HostKey {
     }
 
     /// The base64 encoding of the key blob as it appears in a known_hosts line.
+    ///
+    /// Returns: the blob in standard base64 *with* padding — the known_hosts
+    /// form, unlike the unpadded encoding used by
+    /// [`fingerprint_sha256`](Self::fingerprint_sha256).
     pub fn base64_blob(&self) -> String {
         STANDARD.encode(&self.blob)
     }
@@ -130,6 +139,9 @@ impl KnownHostEntry {
     }
 
     /// SHA-256 fingerprint of this stored entry's key.
+    ///
+    /// Returns: the `SHA256:…` fingerprint of this entry's algorithm/blob, for
+    /// reporting the conflicting key in [`HostKeyStatus::Changed`].
     fn fingerprint(&self) -> String {
         HostKey::new(self.algorithm.clone(), self.blob.clone()).fingerprint_sha256()
     }
@@ -161,6 +173,13 @@ pub fn host_lookup_key(host: &str, port: u16) -> String {
 ///
 /// Skips blank lines, comments, malformed lines, and `@cert-authority` entries
 /// (CA entries are not used for direct key trust in v1).
+///
+/// Arguments: `line` — one raw known_hosts line, leading/trailing space ignored.
+/// Returns: `Some(KnownHostEntry)` for a well-formed line, carrying its optional
+/// `@revoked`/`@cert-authority` marker and a plain or `|1|`-hashed host field.
+/// `None` for a blank line, a `#` comment, or any line missing a token or whose
+/// base64 (key blob, hashed salt, or hash) fails to decode. `@cert-authority`
+/// lines still parse here; the trust check is what ignores them.
 fn parse_line(line: &str) -> Option<KnownHostEntry> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {
@@ -313,6 +332,9 @@ impl KnownHosts {
     }
 
     /// The path of the writable app known_hosts file.
+    ///
+    /// Returns: the path new trusted keys are appended to. The file itself may
+    /// not exist yet — it is created on the first `trust`-style write.
     pub fn app_path(&self) -> &Path {
         &self.app_path
     }

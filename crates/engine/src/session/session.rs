@@ -29,7 +29,7 @@ use crate::transfer::retry::RetryPolicy;
 /// Arguments: `e` — the russh error.
 /// Returns: a classified engine error (host-key, auth, connection, timeout, or
 /// protocol).
-fn map_russh(e: russh::Error) -> EngineError {
+pub(crate) fn map_russh(e: russh::Error) -> EngineError {
     use russh::Error as R;
     match e {
         R::UnknownKey => EngineError::HostKey("server host key was rejected".into()),
@@ -332,23 +332,54 @@ pub struct Session {
 impl Session {
     /// A [`RemoteFs`](crate::fs::RemoteFs) view over the reserved interactive
     /// channel (browsing/file-ops — never transfers).
+    ///
+    /// Returns: an [`SftpFs`] sharing the interactive channel. A [`reconnect`]
+    /// swaps in a fresh channel, so views taken beforehand keep pointing at the
+    /// old one; re-acquire after a reconnect.
+    ///
+    /// [`reconnect`]: Self::reconnect
     pub async fn remote_fs(&self) -> SftpFs {
         SftpFs::new(self.inner.read().await.sftp.clone())
     }
 
     /// Check out a transfer channel from the pool (opened lazily up to the pool
     /// size). Transfers use these so they never block the interactive channel.
+    ///
+    /// Returns: a [`PooledChannel`](super::pool::PooledChannel) that returns
+    /// itself to the pool on drop. Waits for a permit when the pool is saturated;
+    /// errors if a new channel has to be opened and that fails.
     pub async fn checkout_transfer_channel(&self) -> Result<super::pool::PooledChannel> {
         let pool = self.inner.read().await.pool.clone();
         pool.checkout().await
     }
 
     /// Number of currently idle pooled channels (for tests/metrics).
+    ///
+    /// Returns: the current session pool's idle-channel count; see
+    /// [`ChannelPool::idle_len`](super::pool::ChannelPool::idle_len).
     pub async fn pool_idle_len(&self) -> usize {
         self.inner.read().await.pool.idle_len()
     }
 
     /// Whether the underlying SSH connection has closed.
+    ///
+    /// Open a session channel for an interactive shell.
+    ///
+    /// The PTY and shell requests are made by `shell::open`; this only hands out
+    /// a channel on the session's current handle (so it follows a reconnect).
+    ///
+    /// Returns: the opened channel, or an error if the connection is gone.
+    pub(crate) async fn open_shell_channel(
+        &self,
+    ) -> Result<russh::Channel<russh::client::Msg>> {
+        let handle = self.inner.read().await.handle.clone();
+        handle.channel_open_session().await.map_err(map_russh)
+    }
+
+    /// Returns: `true` once the current russh handle is closed — what the
+    /// supervisor polls to trigger a reconnect. A successful
+    /// [`reconnect`](Self::reconnect) swaps in a fresh handle and this reads
+    /// `false` again.
     pub async fn is_closed(&self) -> bool {
         self.inner.read().await.handle.is_closed()
     }
@@ -356,6 +387,11 @@ impl Session {
     /// Re-establish the connection using the stored parameters, swapping in the
     /// fresh handle/interactive-channel/pool. Called by the supervisor on a
     /// detected drop; also usable directly to force a reconnect.
+    ///
+    /// Returns: `Ok(())` once the new handle, interactive channel, and pool are
+    /// installed. Propagates any [`establish`] failure (host-key rejection, auth,
+    /// or connect error), leaving the existing state untouched. The old pool's
+    /// channels are dropped, so callers must re-acquire `remote_fs`/channels.
     pub async fn reconnect(&self) -> Result<()> {
         let (handle, sftp, pool) = establish(
             &self.params,
@@ -379,6 +415,17 @@ impl Session {
 
 /// Connect, verify the host key, authenticate, and open the interactive SFTP
 /// channel + transfer pool. Shared by initial connect and reconnect.
+///
+/// Arguments: `params` — host/port/username and the auth method to use;
+/// `known_hosts` — the store the handler checks the server key against;
+/// `prompts` — registry backing host-key and keyboard-interactive prompts;
+/// `events` — broadcast sender the handler emits engine events on.
+/// Returns: the connected [`ClientHandle`], the interactive [`SftpSession`], and
+/// a [`ChannelPool`](super::pool::ChannelPool) of `DEFAULT_POOL_SIZE`. Errors:
+/// connect/protocol failures map via [`map_russh`]; a rejected or changed host
+/// key fails the handshake; and an unsuccessful authentication (any method)
+/// yields [`EngineError::Auth`]. Keepalives are configured so a dead peer is
+/// detected and drives auto-reconnect.
 async fn establish(
     params: &ConnectParams,
     known_hosts: Arc<Mutex<KnownHosts>>,

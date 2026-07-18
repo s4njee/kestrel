@@ -14,7 +14,10 @@ use crate::state::AppState;
 
 /// The user's home directory (the local pane's default location).
 ///
-/// Returns: the absolute home path as a string.
+/// Arguments: none (beyond the injected Tauri `app` handle, used to resolve the
+/// path).
+/// Returns: the absolute home path as a string, or an error if Tauri cannot
+/// resolve a home directory.
 #[tauri::command]
 pub async fn local_home_dir(app: AppHandle) -> CmdResult<String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
@@ -50,6 +53,9 @@ pub async fn local_list_dir(path: String) -> CmdResult<Vec<DirEntryDto>> {
 }
 
 /// Rename/move a local entry.
+///
+/// Arguments: `from` — the current local path; `to` — the new local path.
+/// Returns: `()` on success, or the filesystem error as a string.
 #[tauri::command]
 pub async fn local_rename(from: String, to: String) -> CmdResult<()> {
     LocalFs::new()
@@ -59,6 +65,13 @@ pub async fn local_rename(from: String, to: String) -> CmdResult<()> {
 }
 
 /// Delete local entries. Directories require `recursive = true`.
+///
+/// Arguments: `paths` — the local paths to delete; `recursive` — delete
+/// directory trees via the engine's `remove_recursive` instead of
+/// stat-then-remove of a single entry.
+/// Returns: `()` once every path is gone. Errors on the first path that fails to
+/// delete — earlier paths stay deleted. A non-recursive delete of a non-empty
+/// directory fails.
 #[tauri::command]
 pub async fn local_delete(paths: Vec<String>, recursive: bool) -> CmdResult<()> {
     let fs = LocalFs::new();
@@ -78,12 +91,20 @@ pub async fn local_delete(paths: Vec<String>, recursive: bool) -> CmdResult<()> 
 }
 
 /// Create a local directory.
+///
+/// Arguments: `path` — the directory to create.
+/// Returns: `()` on success, or the filesystem error as a string (e.g. the path
+/// already exists).
 #[tauri::command]
 pub async fn local_mkdir(path: String) -> CmdResult<()> {
     LocalFs::new().mkdir(&path).await.map_err(|e| e.to_string())
 }
 
 /// Set Unix permission bits on a local path (no-op on non-Unix).
+///
+/// Arguments: `path` — the local path; `mode` — the Unix permission bits to
+/// apply.
+/// Returns: `()` on success, or the filesystem error as a string.
 #[tauri::command]
 pub async fn local_set_permissions(path: String, mode: u32) -> CmdResult<()> {
     LocalFs::new()

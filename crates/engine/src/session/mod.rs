@@ -71,6 +71,8 @@ pub struct Engine {
     known_hosts: Arc<Mutex<KnownHosts>>,
     sessions: Arc<DashMap<SessionId, Arc<Session>>>,
     queue: TransferQueue,
+    /// Live interactive shells, keyed by shell id.
+    shells: Arc<DashMap<crate::shell::ShellId, crate::shell::Shell>>,
 }
 
 impl Engine {
@@ -90,6 +92,7 @@ impl Engine {
             known_hosts: Arc::new(Mutex::new(known_hosts)),
             sessions,
             queue,
+            shells: Arc::new(DashMap::new()),
         }
     }
 
@@ -192,16 +195,23 @@ impl Engine {
     }
 
     /// Cancel a transfer.
+    ///
+    /// Arguments: `id` — the transfer to cancel; unknown ids are ignored.
     pub fn cancel_transfer(&self, id: TransferId) {
         self.queue.cancel(id);
     }
 
     /// Pause a transfer (resumable from its current offset).
+    ///
+    /// Arguments: `id` — the transfer to pause; unknown ids are ignored.
     pub fn pause_transfer(&self, id: TransferId) {
         self.queue.pause(id);
     }
 
     /// Resume a paused transfer.
+    ///
+    /// Arguments: `id` — the transfer to resume; unknown ids and items that are
+    /// not Paused are ignored.
     pub fn resume_transfer(&self, id: TransferId) {
         self.queue.resume(id);
     }
@@ -212,16 +222,27 @@ impl Engine {
     }
 
     /// Set the maximum number of concurrently-running transfers (applies live).
+    ///
+    /// Arguments: `n` — the new limit; clamped to a minimum of 1. Lowering it
+    /// takes effect as in-flight transfers finish.
     pub fn set_concurrency(&self, n: usize) {
         self.queue.set_concurrency(n);
     }
 
     /// Set the default conflict handling (`None` = prompt/Ask).
+    ///
+    /// Arguments: `policy` — the resolution to apply automatically to each
+    /// destination-exists conflict, or `None` to prompt the user. A batch-wide
+    /// "apply to all" choice still takes precedence.
     pub fn set_conflict_policy(&self, policy: Option<crate::transfer::ConflictResolution>) {
         self.queue.set_conflict_policy(policy);
     }
 
     /// Resolve a pending destination-exists conflict.
+    ///
+    /// Arguments: `id` — the conflicted transfer; `resolution` — the choice;
+    /// `apply_to_all` — also apply this choice to the rest of `id`'s batch,
+    /// including conflicts already awaiting an answer.
     pub fn resolve_conflict(
         &self,
         id: TransferId,
@@ -237,6 +258,9 @@ impl Engine {
     }
 
     /// Enable queue persistence, writing snapshots to `path`.
+    ///
+    /// Arguments: `path` — the snapshot file to write active transfers to;
+    /// written via a `.json.tmp` sibling and an atomic rename.
     pub fn set_queue_persistence(&self, path: std::path::PathBuf) {
         self.queue.set_persist_path(path);
     }
@@ -260,6 +284,10 @@ impl Engine {
     }
 
     /// Look up a transfer item.
+    ///
+    /// Arguments: `id` — the transfer to look up.
+    /// Returns: a shared handle to the item, or `None` if it was never enqueued
+    /// or has since been cleared by [`clear_completed`](Self::clear_completed).
     pub fn transfer_item(&self, id: TransferId) -> Option<Arc<TransferItem>> {
         self.queue.item(id)
     }
@@ -272,6 +300,9 @@ impl Engine {
     }
 
     /// The interactive-prompt registry (used by the shell's `respond_prompt`).
+    ///
+    /// Returns: a borrow of the engine's [`Prompts`], through which host-key and
+    /// keyboard-interactive prompts are answered.
     pub fn prompts(&self) -> &Prompts {
         &self.prompts
     }
@@ -312,6 +343,8 @@ impl Engine {
     pub fn disconnect(&self, id: SessionId) -> Result<()> {
         match self.sessions.remove(&id) {
             Some((_, session)) => {
+                // Tear down this session's shells before dropping the connection.
+                self.close_session_shells(id);
                 // Stop the supervisor so it releases the session and the
                 // connection closes.
                 session.shutdown();
@@ -325,7 +358,83 @@ impl Engine {
         }
     }
 
+
+    /// Open an interactive shell (PTY) on a session.
+    ///
+    /// Arguments: `session_id` — the session to run the shell on; `cols`/`rows`
+    /// — the initial terminal size.
+    /// Returns: the new [`ShellId`]; output then arrives as
+    /// [`EngineEvent::ShellData`]. Errors if the session is unknown or the
+    /// channel/PTY could not be opened.
+    pub async fn open_shell(
+        &self,
+        session_id: SessionId,
+        cols: u32,
+        rows: u32,
+    ) -> Result<crate::shell::ShellId> {
+        let session = self
+            .session(session_id)
+            .ok_or_else(|| EngineError::NotFound(format!("session {session_id}")))?;
+        let channel = session.open_shell_channel().await?;
+        let id = uuid::Uuid::new_v4();
+        let shell =
+            crate::shell::open(channel, id, session_id, cols, rows, self.events_tx.clone()).await?;
+        self.shells.insert(id, shell);
+        Ok(id)
+    }
+
+    /// Send keystrokes to a shell.
+    ///
+    /// Arguments: `id` — the shell; `data` — raw bytes as typed.
+    /// Returns: `Ok(())` once queued; errors if the shell is unknown or ended.
+    pub fn shell_write(&self, id: crate::shell::ShellId, data: Vec<u8>) -> Result<()> {
+        let shell = self
+            .shells
+            .get(&id)
+            .ok_or_else(|| EngineError::NotFound(format!("shell {id}")))?;
+        shell.write(data)
+    }
+
+    /// Tell a shell its terminal was resized.
+    ///
+    /// Arguments: `id` — the shell; `cols`/`rows` — the new grid size.
+    /// Returns: `Ok(())` once queued; errors if the shell is unknown or ended.
+    pub fn shell_resize(&self, id: crate::shell::ShellId, cols: u32, rows: u32) -> Result<()> {
+        let shell = self
+            .shells
+            .get(&id)
+            .ok_or_else(|| EngineError::NotFound(format!("shell {id}")))?;
+        shell.resize(cols, rows)
+    }
+
+    /// Close a shell and forget it. Closing an unknown shell is a no-op.
+    ///
+    /// Arguments: `id` — the shell to close.
+    pub fn close_shell(&self, id: crate::shell::ShellId) {
+        if let Some((_, shell)) = self.shells.remove(&id) {
+            shell.close();
+        }
+    }
+
+    /// Close every shell belonging to a session (used when it disconnects).
+    ///
+    /// Arguments: `session_id` — the session being torn down.
+    fn close_session_shells(&self, session_id: SessionId) {
+        let doomed: Vec<_> = self
+            .shells
+            .iter()
+            .filter(|e| e.value().session_id() == session_id)
+            .map(|e| *e.key())
+            .collect();
+        for id in doomed {
+            self.close_shell(id);
+        }
+    }
+
     /// List the ids of all live sessions.
+    ///
+    /// Returns: the ids of every registered session, in unspecified order. The
+    /// snapshot may go stale as soon as it is taken.
     pub fn session_ids(&self) -> Vec<SessionId> {
         self.sessions.iter().map(|entry| *entry.key()).collect()
     }

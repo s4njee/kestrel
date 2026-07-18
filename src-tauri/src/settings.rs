@@ -40,6 +40,8 @@ pub struct Settings {
 impl Default for Settings {
     /// Sensible first-run defaults: 3 concurrent transfers, prompt on conflict,
     /// no pinned local dir, hidden files off.
+    ///
+    /// Returns: the default [`Settings`].
     fn default() -> Self {
         Settings {
             concurrency: 3,
@@ -123,6 +125,8 @@ impl SettingsStore {
 
     /// Rewrite `settings.json` atomically (temp file + rename). Failures are
     /// logged rather than propagated. Returns: `()`.
+    ///
+    /// Arguments: `settings` — the settings to serialize into the file.
     fn persist(&self, settings: &Settings) {
         let file = SettingsFile {
             version: SCHEMA_VERSION,

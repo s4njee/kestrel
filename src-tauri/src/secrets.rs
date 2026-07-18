@@ -136,6 +136,10 @@ impl KeyringStore {
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl SecretStore for KeyringStore {
     /// Stores (or replaces) the secret in the OS keychain.
+    ///
+    /// Arguments: `key` — which secret; `secret` — the plaintext to persist.
+    /// Returns: `Ok(())` on success, [`SecretError::Unavailable`] if no keychain
+    /// backend exists, else [`SecretError::Backend`].
     fn set(&self, key: &SecretRef, secret: &str) -> Result<(), SecretError> {
         self.entry(key)?
             .set_password(secret)
@@ -143,6 +147,11 @@ impl SecretStore for KeyringStore {
     }
 
     /// Reads the secret; a missing entry maps to `Ok(None)`.
+    ///
+    /// Arguments: `key` — which secret.
+    /// Returns: `Ok(Some(secret))` if present, `Ok(None)` on
+    /// `keyring::Error::NoEntry`, [`SecretError::Unavailable`] if no keychain
+    /// backend exists, else [`SecretError::Backend`].
     fn get(&self, key: &SecretRef) -> Result<Option<Zeroizing<String>>, SecretError> {
         match self.entry(key)?.get_password() {
             Ok(secret) => Ok(Some(Zeroizing::new(secret))),
@@ -152,6 +161,11 @@ impl SecretStore for KeyringStore {
     }
 
     /// Deletes the secret; an absent entry is not an error.
+    ///
+    /// Arguments: `key` — which secret.
+    /// Returns: `Ok(())` on success or if already absent,
+    /// [`SecretError::Unavailable`] if no keychain backend exists, else
+    /// [`SecretError::Backend`].
     fn delete(&self, key: &SecretRef) -> Result<(), SecretError> {
         match self.entry(key)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -184,6 +198,9 @@ impl InMemoryStore {
 // returns are documented on the trait. Every operation is infallible here.
 impl SecretStore for InMemoryStore {
     /// Inserts or replaces the secret in the in-memory map.
+    ///
+    /// Arguments: `key` — which secret; `secret` — the plaintext to hold.
+    /// Returns: always `Ok(())`; the in-memory map cannot fail.
     fn set(&self, key: &SecretRef, secret: &str) -> Result<(), SecretError> {
         self.entries
             .lock()
@@ -193,6 +210,8 @@ impl SecretStore for InMemoryStore {
     }
 
     /// Returns the stored secret, or `Ok(None)` if absent.
+    ///
+    /// Arguments: `key` — which secret.
     fn get(&self, key: &SecretRef) -> Result<Option<Zeroizing<String>>, SecretError> {
         Ok(self
             .entries
@@ -203,6 +222,9 @@ impl SecretStore for InMemoryStore {
     }
 
     /// Removes the secret if present (no-op otherwise).
+    ///
+    /// Arguments: `key` — which secret.
+    /// Returns: always `Ok(())`; the in-memory map cannot fail.
     fn delete(&self, key: &SecretRef) -> Result<(), SecretError> {
         self.entries
             .lock()

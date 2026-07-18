@@ -41,6 +41,14 @@ pub enum SessionEventDto {
     /// is still showing `path`. Emitted by the local FS watcher, not the engine.
     #[serde(rename_all = "camelCase")]
     LocalDirChanged { path: String },
+    /// Raw output from an interactive shell. `data` is **base64** — terminal
+    /// bytes are not valid UTF-8 mid escape-sequence, so they are not sent as a
+    /// JSON string.
+    #[serde(rename_all = "camelCase")]
+    ShellData { shell_id: String, data: String },
+    /// An interactive shell ended.
+    #[serde(rename_all = "camelCase")]
+    ShellClosed { shell_id: String },
 }
 
 /// One field of a keyboard-interactive challenge (mirrors the TS shape).
@@ -54,6 +62,10 @@ pub struct AuthFieldDto {
 impl SessionEventDto {
     /// Convert an engine event to its webview DTO, or `None` for events that do
     /// not belong on the session channel (transfer events go elsewhere).
+    ///
+    /// Arguments: `event` — the engine event to translate.
+    /// Returns: `Some(dto)` for session lifecycle, auth-prompt, and host-key
+    /// events, or `None` for transfer state/progress/conflict events.
     pub fn from_engine(event: EngineEvent) -> Option<SessionEventDto> {
         match event {
             EngineEvent::TransferStateChanged { .. }
@@ -93,6 +105,16 @@ impl SessionEventDto {
                     })
                     .collect(),
             }),
+            EngineEvent::ShellData { shell_id, data } => {
+                use base64::Engine as _;
+                Some(SessionEventDto::ShellData {
+                    shell_id: shell_id.to_string(),
+                    data: base64::engine::general_purpose::STANDARD.encode(data),
+                })
+            }
+            EngineEvent::ShellClosed { shell_id } => Some(SessionEventDto::ShellClosed {
+                shell_id: shell_id.to_string(),
+            }),
             EngineEvent::HostKeyPrompt {
                 prompt_id,
                 host,
@@ -115,6 +137,10 @@ impl SessionEventDto {
 }
 
 /// String tag for a transfer state.
+///
+/// Arguments: `state` — the engine transfer state.
+/// Returns: the wire value: `"queued"`, `"running"`, `"paused"`,
+/// `"awaitingUser"`, `"done"`, `"skipped"`, `"failed"`, or `"canceled"`.
 fn state_str(state: TransferState) -> &'static str {
     match state {
         TransferState::Queued => "queued",
@@ -138,6 +164,10 @@ pub struct ProgressItemDto {
 }
 
 /// The final path component (handles `/` and `\`).
+///
+/// Arguments: `path` — a local or remote path.
+/// Returns: the last component after trailing separators are trimmed, or `path`
+/// itself when it has no separator.
 fn base_name(path: &str) -> &str {
     path.trim_end_matches(['/', '\\'])
         .rsplit(['/', '\\'])
@@ -186,6 +216,10 @@ impl TransferEventDto {
     /// Convert an engine event to its transfer DTO, enriching state changes with
     /// the item's name/size/direction from `engine`. Returns `None` for
     /// non-transfer events (which flow on the session channel).
+    ///
+    /// Arguments: `event` — the engine event to translate; `engine` — used to
+    /// look up the transfer item behind a state change (an item that has already
+    /// been dropped yields an empty name, zero sizes, and "download").
     pub fn from_engine(event: EngineEvent, engine: &Engine) -> Option<TransferEventDto> {
         use std::sync::atomic::Ordering;
         match event {

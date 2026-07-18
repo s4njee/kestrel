@@ -42,6 +42,9 @@ pub(crate) struct Concurrency {
 
 impl Concurrency {
     /// Create a limiter with `n` permits.
+    ///
+    /// Arguments: `n` — the initial concurrency limit.
+    /// Returns: the limiter, with `n` permits available.
     fn new(n: usize) -> Self {
         Concurrency {
             sem: Arc::new(Semaphore::new(n)),
@@ -50,6 +53,9 @@ impl Concurrency {
     }
 
     /// Acquire one slot, waiting if the limit is reached.
+    ///
+    /// Returns: an owned permit that releases the slot when dropped. Panics if
+    /// the underlying semaphore has been closed.
     async fn acquire(&self) -> OwnedSemaphorePermit {
         self.sem
             .clone()
@@ -60,6 +66,8 @@ impl Concurrency {
 
     /// Change the concurrency limit live. Increases add permits immediately;
     /// decreases take effect as in-flight transfers finish.
+    ///
+    /// Arguments: `n` — the new concurrency limit.
     fn set(&self, n: usize) {
         let mut current = self.current.lock().unwrap();
         if n > *current {
@@ -115,6 +123,8 @@ pub enum TransferState {
 
 impl TransferState {
     /// Whether this is a terminal state (no further transitions).
+    ///
+    /// Returns: true for `Done`, `Skipped`, `Failed`, and `Canceled`.
     pub fn is_terminal(self) -> bool {
         matches!(
             self,
@@ -127,6 +137,9 @@ impl TransferState {
 
     /// Whether the transfer is active (queued, running, or paused) — i.e. not
     /// finished.
+    ///
+    /// Returns: the negation of [`is_terminal`](Self::is_terminal) — true for
+    /// `Queued`, `Running`, `Paused`, and `AwaitingUser`.
     pub fn is_active(self) -> bool {
         !self.is_terminal()
     }
@@ -182,26 +195,38 @@ pub struct TransferItem {
 
 impl TransferItem {
     /// Current state.
+    ///
+    /// Returns: a copy of the item's state as of this call.
     pub fn state(&self) -> TransferState {
         *self.state.lock().unwrap()
     }
 
     /// The effective destination path (may differ from `dest` after a rename).
+    ///
+    /// Returns: a clone of the current effective destination path.
     pub fn effective_dest(&self) -> String {
         self.effective_dest.lock().unwrap().clone()
     }
 
     /// Set the effective destination (used by a Rename resolution).
+    ///
+    /// Arguments: `dest` — the path to actually write to.
     pub(crate) fn set_effective_dest(&self, dest: String) {
         *self.effective_dest.lock().unwrap() = dest;
     }
 
     /// A clone of the current run's cancellation token (shares state).
+    ///
+    /// Returns: a token that observes cancellation of the current attempt. A
+    /// resume installs a fresh token, so tokens taken before it are stale.
     pub fn token(&self) -> CancellationToken {
         self.cancel.lock().unwrap().clone()
     }
 
     /// Whether the last stop request was a pause.
+    ///
+    /// Returns: true if [`request_pause`](Self::request_pause) was the most
+    /// recent stop request, false after a cancel or a resume.
     pub(crate) fn is_pause_requested(&self) -> bool {
         self.pause_requested.load(Ordering::Relaxed)
     }
@@ -225,6 +250,9 @@ impl TransferItem {
     }
 
     /// Set the state (internal to the engine).
+    ///
+    /// Arguments: `state` — the new lifecycle state. No event is emitted; use
+    /// [`QueueShared::emit_state`] to both set and announce a transition.
     pub(crate) fn set_state(&self, state: TransferState) {
         *self.state.lock().unwrap() = state;
     }
@@ -254,6 +282,11 @@ pub(crate) struct QueueShared {
 
 impl QueueShared {
     /// Emit a state change for an item and update its stored state.
+    ///
+    /// Arguments: `id` — the transfer to transition (ignored for the state
+    /// update if it is no longer registered); `state` — the new state; `error` —
+    /// an optional message carried on the event (for `Failed`). Also signals the
+    /// persistence loop to write a snapshot.
     pub(crate) fn emit_state(&self, id: TransferId, state: TransferState, error: Option<String>) {
         if let Some(item) = self.items.get(&id) {
             item.set_state(state);
@@ -291,6 +324,10 @@ impl QueueShared {
     }
 
     /// Emit a conflict event for a transfer awaiting a user decision.
+    ///
+    /// Arguments: `id` — the conflicted transfer; `dest` — the destination path
+    /// that already exists; `existing` — size/mtime of the destination file;
+    /// `incoming` — size/mtime of the source file.
     pub(crate) fn emit_conflict(
         &self,
         id: TransferId,
@@ -317,6 +354,11 @@ impl TransferQueue {
     ///
     /// Does not spawn tasks; call [`spawn_workers`](Self::spawn_workers) from a
     /// tokio runtime to start processing.
+    ///
+    /// Arguments: `sessions` — the registry transfers resolve their session
+    /// from; `events` — the broadcast bus state/progress events are sent on.
+    /// Returns: an empty queue with the default concurrency limit, persistence
+    /// disabled, and the conflict policy set to Overwrite.
     pub fn new(
         sessions: Arc<DashMap<SessionId, Arc<Session>>>,
         events: broadcast::Sender<EngineEvent>,
@@ -350,6 +392,9 @@ impl TransferQueue {
     }
 
     /// Enable queue persistence to `path`.
+    ///
+    /// Arguments: `path` — the snapshot file to write active transfers to;
+    /// written via a `.json.tmp` sibling and an atomic rename.
     pub fn set_persist_path(&self, path: PathBuf) {
         *self.shared.persist_path.lock().unwrap() = Some(path);
     }
@@ -392,6 +437,8 @@ impl TransferQueue {
 
     /// Enqueue transfers, returning their new ids in request order. All items
     /// share a batch id so an "apply to all" conflict choice can span them.
+    ///
+    /// Arguments: `requests` — the transfers to queue, in priority order.
     pub fn enqueue(&self, requests: Vec<TransferRequest>) -> Vec<TransferId> {
         let batch_id = Uuid::new_v4();
         let mut ids = Vec::with_capacity(requests.len());
@@ -424,6 +471,8 @@ impl TransferQueue {
 
     /// Cancel a transfer. A queued/paused item is marked Canceled immediately; a
     /// running item's copy loop aborts and the worker finalizes it.
+    ///
+    /// Arguments: `id` — the transfer to cancel; unknown ids are ignored.
     pub fn cancel(&self, id: TransferId) {
         let Some(item) = self.shared.items.get(&id).map(|e| e.clone()) else {
             return;
@@ -439,6 +488,9 @@ impl TransferQueue {
     /// Pause a transfer. A running item's attempt is aborted (the worker sets
     /// Paused and preserves the partial `.part`); a queued item is parked as
     /// Paused immediately.
+    ///
+    /// Arguments: `id` — the transfer to pause; unknown ids and items in any
+    /// other state are ignored.
     pub fn pause(&self, id: TransferId) {
         let Some(item) = self.shared.items.get(&id).map(|e| e.clone()) else {
             return;
@@ -455,6 +507,9 @@ impl TransferQueue {
 
     /// Resume a paused transfer: re-queue it (the worker resumes from the
     /// current `.part`/remote offset).
+    ///
+    /// Arguments: `id` — the transfer to resume; unknown ids and items that are
+    /// not Paused are ignored.
     pub fn resume(&self, id: TransferId) {
         let Some(item) = self.shared.items.get(&id).map(|e| e.clone()) else {
             return;
@@ -485,6 +540,9 @@ impl TransferQueue {
     }
 
     /// Remove an id from the pending FIFO.
+    ///
+    /// Arguments: `id` — the transfer to drop from the queue; absent ids are a
+    /// no-op.
     fn remove_pending(&self, id: TransferId) {
         self.shared
             .pending
@@ -494,17 +552,27 @@ impl TransferQueue {
     }
 
     /// Look up an item by id.
+    ///
+    /// Arguments: `id` — the transfer to look up.
+    /// Returns: a shared handle to the item, or `None` if it was never enqueued
+    /// or has since been cleared by `clear_completed`.
     pub fn item(&self, id: TransferId) -> Option<Arc<TransferItem>> {
         self.shared.items.get(&id).map(|e| e.clone())
     }
 
     /// Set the maximum number of concurrently-running transfers (applies live).
+    ///
+    /// Arguments: `n` — the new limit; clamped to a minimum of 1. Lowering it
+    /// takes effect as in-flight transfers finish.
     pub fn set_concurrency(&self, n: usize) {
         self.shared.concurrency.set(n.max(1));
     }
 
     /// Set the default conflict handling: `Some(resolution)` to auto-apply, or
     /// `None` to prompt the user (Ask) on each destination-exists conflict.
+    ///
+    /// Arguments: `policy` — the resolution to apply automatically, or `None`
+    /// to ask. A batch-wide "apply to all" choice still takes precedence.
     pub fn set_conflict_policy(&self, policy: Option<ConflictResolution>) {
         *self.shared.default_conflict.lock().unwrap() = policy;
     }

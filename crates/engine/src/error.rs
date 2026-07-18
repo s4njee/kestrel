@@ -92,6 +92,10 @@ impl EngineError {
 
     /// Convenience predicate: `true` iff [`classify`](Self::classify) is
     /// [`ErrorClass::Transient`].
+    ///
+    /// Returns: `true` when the error is worth retrying, `false` when it is
+    /// fatal. Carries no extra logic of its own — it delegates to
+    /// [`classify`](Self::classify).
     pub fn is_transient(&self) -> bool {
         self.classify() == ErrorClass::Transient
     }

@@ -33,6 +33,8 @@ impl ChannelPool {
     ///
     /// Arguments: `handle` — the session's SSH handle (to open channels);
     /// `max` — maximum concurrent transfer channels.
+    /// Returns: the [`ChannelPool`]. No channels are opened here — they are
+    /// created lazily on the first [`ChannelPool::checkout`] that finds none idle.
     pub(crate) fn new(handle: ClientHandle, max: usize) -> Self {
         ChannelPool {
             inner: Arc::new(PoolInner {
@@ -71,6 +73,10 @@ impl ChannelPool {
     }
 
     /// Number of currently idle (open but unused) channels — for tests/metrics.
+    ///
+    /// Returns: the count of channels parked in the idle list. Checked-out
+    /// channels are not counted, and the value can change immediately after the
+    /// lock is released.
     pub fn idle_len(&self) -> usize {
         self.inner.idle.lock().unwrap().len()
     }
@@ -85,6 +91,10 @@ pub struct PooledChannel {
 
 impl PooledChannel {
     /// A [`RemoteFs`](crate::fs::RemoteFs) view over this channel.
+    ///
+    /// Returns: an [`SftpFs`] sharing this checked-out channel. It stays valid
+    /// only while the `PooledChannel` is alive — on drop the channel returns to
+    /// the pool and may be handed to another caller.
     pub fn fs(&self) -> SftpFs {
         SftpFs::new(self.channel.clone().expect("channel present until drop"))
     }

@@ -13,6 +13,7 @@ use crate::state::AppState;
 
 /// Get the current settings.
 ///
+/// Arguments: none (beyond managed state).
 /// Returns: the persisted [`Settings`] (defaults on first run).
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {

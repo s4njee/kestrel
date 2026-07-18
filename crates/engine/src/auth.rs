@@ -19,11 +19,19 @@ pub struct Secret(Zeroizing<String>);
 
 impl Secret {
     /// Wrap a plaintext secret.
+    ///
+    /// Arguments: `value` — the plaintext, converted into an owned `String`.
+    /// Returns: a `Secret` holding the value in [`Zeroizing`] storage, so it is
+    /// wiped on drop and redacted by `Debug`.
     pub fn new(value: impl Into<String>) -> Self {
         Secret(Zeroizing::new(value.into()))
     }
 
     /// Borrow the underlying string (callers must not persist or log it).
+    ///
+    /// Returns: the plaintext secret borrowed for the lifetime of `self`. The
+    /// borrow bypasses the redacting `Debug`, so copying it into an owned
+    /// `String` or a log line defeats the zeroize-on-drop guarantee.
     pub fn expose(&self) -> &str {
         &self.0
     }

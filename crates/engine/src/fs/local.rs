@@ -98,6 +98,12 @@ fn kind_of(ft: std::fs::FileType) -> EntryKind {
 impl RemoteFs for LocalFs {
     /// Lists a directory with `tokio::fs::read_dir`; symlinks are reported as
     /// links (never followed) with their target resolved.
+    ///
+    /// Arguments: `path` — an OS-native directory path.
+    /// Returns: one [`DirEntry`] per child in `read_dir` order, each carrying
+    /// size, mtime, Unix mode bits (Unix only), and a resolved `link_target` for
+    /// symlinks. Errors map via [`map_io`] ([`EngineError::NotFound`] /
+    /// [`EngineError::PermissionDenied`], else [`EngineError::Io`]).
     async fn list(&self, path: &str) -> Result<Vec<DirEntry>> {
         let mut reader = fs::read_dir(path).await.map_err(|e| map_io(path, e))?;
         let mut entries = Vec::new();
@@ -135,6 +141,11 @@ impl RemoteFs for LocalFs {
     }
 
     /// Stats a path with `symlink_metadata` (does not follow the final link).
+    ///
+    /// Arguments: `path` — an OS-native path.
+    /// Returns: the entry's [`Metadata`], with `link_target` filled in only for
+    /// symlinks (a failed `read_link` leaves it `None`). Errors map via
+    /// [`map_io`], so a missing path yields [`EngineError::NotFound`].
     async fn stat(&self, path: &str) -> Result<Metadata> {
         let meta = fs::symlink_metadata(path).await.map_err(|e| map_io(path, e))?;
         let kind = kind_of(meta.file_type());
@@ -157,6 +168,11 @@ impl RemoteFs for LocalFs {
     }
 
     /// Opens a file for reading and seeks to `offset`.
+    ///
+    /// Arguments: `path` — file to open; `offset` — starting byte (no seek is
+    /// issued when 0).
+    /// Returns: a boxed `tokio::fs::File` positioned at `offset`. Open and seek
+    /// failures map via [`map_io`].
     async fn open_read(&self, path: &str, offset: u64) -> Result<BoxRead> {
         let mut file = fs::File::open(path).await.map_err(|e| map_io(path, e))?;
         if offset > 0 {
@@ -169,6 +185,12 @@ impl RemoteFs for LocalFs {
 
     /// Opens a file for writing: `Create` truncates; `Resume` keeps existing
     /// bytes and seeks to the offset.
+    ///
+    /// Arguments: `path` — file to write; `mode` — [`WriteMode::Create`] creates
+    /// or truncates, [`WriteMode::Resume`] opens without truncating (creating if
+    /// absent) and seeks to `offset`.
+    /// Returns: a boxed `tokio::fs::File` positioned for the write. Open and seek
+    /// failures map via [`map_io`].
     async fn open_write(&self, path: &str, mode: WriteMode) -> Result<BoxWrite> {
         let file = match mode {
             WriteMode::Create => fs::File::create(path).await.map_err(|e| map_io(path, e))?,
@@ -190,26 +212,45 @@ impl RemoteFs for LocalFs {
     }
 
     /// Renames/moves an entry with `tokio::fs::rename`.
+    ///
+    /// Arguments: `from` — existing path; `to` — destination path (overwritten if
+    /// it exists, per platform `rename` semantics).
+    /// Returns: `Ok(())` on success; errors map via [`map_io`] and name `from`.
     async fn rename(&self, from: &str, to: &str) -> Result<()> {
         fs::rename(from, to).await.map_err(|e| map_io(from, e))
     }
 
     /// Removes a single file.
+    ///
+    /// Arguments: `path` — the file (or symlink, removed as a link) to delete.
+    /// Returns: `Ok(())` on success; errors map via [`map_io`].
     async fn remove_file(&self, path: &str) -> Result<()> {
         fs::remove_file(path).await.map_err(|e| map_io(path, e))
     }
 
     /// Removes an empty directory (non-recursive).
+    ///
+    /// Arguments: `path` — the directory to remove.
+    /// Returns: `Ok(())` on success; errors map via [`map_io`], including the
+    /// I/O error raised when the directory is not empty.
     async fn remove_dir(&self, path: &str) -> Result<()> {
         fs::remove_dir(path).await.map_err(|e| map_io(path, e))
     }
 
     /// Creates a directory (its parent must already exist).
+    ///
+    /// Arguments: `path` — the directory to create.
+    /// Returns: `Ok(())` on success; errors map via [`map_io`], including when
+    /// the parent is missing or the path already exists.
     async fn mkdir(&self, path: &str) -> Result<()> {
         fs::create_dir(path).await.map_err(|e| map_io(path, e))
     }
 
     /// Sets Unix permission bits from `mode`.
+    ///
+    /// Arguments: `path` — the target entry; `mode` — Unix mode bits, applied
+    /// verbatim via `PermissionsExt::from_mode`.
+    /// Returns: `Ok(())` on success; errors map via [`map_io`].
     #[cfg(unix)]
     async fn set_permissions(&self, path: &str, mode: u32) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
@@ -220,6 +261,10 @@ impl RemoteFs for LocalFs {
     }
 
     /// No-op on non-Unix platforms (no mode bits; see [`capabilities`]).
+    ///
+    /// Arguments: `_path` — ignored; `_mode` — ignored.
+    /// Returns: always `Ok(())`; nothing is changed on disk, which
+    /// `capabilities()` advertises via `supports_permissions: false`.
     #[cfg(not(unix))]
     async fn set_permissions(&self, _path: &str, _mode: u32) -> Result<()> {
         // No Unix mode bits on this platform; capabilities() advertises this.
@@ -227,12 +272,20 @@ impl RemoteFs for LocalFs {
     }
 
     /// Reads a symlink's target path.
+    ///
+    /// Arguments: `path` — the symlink to read.
+    /// Returns: the target as a lossy-UTF-8 string (unpaired surrogates or
+    /// non-UTF-8 bytes become `U+FFFD`). Errors map via [`map_io`], including
+    /// when `path` is not a symlink.
     async fn read_link(&self, path: &str) -> Result<String> {
         let target = fs::read_link(path).await.map_err(|e| map_io(path, e))?;
         Ok(target.to_string_lossy().into_owned())
     }
 
     /// Local FS supports permissions on Unix and always supports symlinks.
+    ///
+    /// Returns: `supports_permissions` set from `cfg!(unix)` and
+    /// `supports_symlinks: true`.
     fn capabilities(&self) -> FsCapabilities {
         FsCapabilities {
             supports_permissions: cfg!(unix),

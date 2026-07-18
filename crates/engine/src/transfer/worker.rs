@@ -28,6 +28,11 @@ use crate::transfer::{
 /// Byte offset to resume a transfer from, based on what is already present at
 /// the destination (a `.part` file for downloads, the remote file for uploads).
 /// Makes every attempt — retry or user resume — continue where it left off.
+///
+/// Arguments: `item` — the transfer (its direction and effective destination
+/// select what is probed); `remote` — the SFTP filesystem used for uploads.
+/// Returns: the number of bytes already at the destination, or 0 if nothing is
+/// there or the probe fails.
 async fn resume_offset(item: &TransferItem, remote: &SftpFs) -> u64 {
     let dest = item.effective_dest();
     match item.direction {
@@ -40,6 +45,10 @@ async fn resume_offset(item: &TransferItem, remote: &SftpFs) -> u64 {
 }
 
 /// Local metadata's mtime as Unix epoch seconds, if available.
+///
+/// Arguments: `meta` — metadata for a local file.
+/// Returns: the mtime in seconds since the Unix epoch, or `None` if the
+/// platform does not report it or it predates the epoch.
 fn local_mtime(meta: &std::fs::Metadata) -> Option<i64> {
     meta.modified()
         .ok()
@@ -48,6 +57,12 @@ fn local_mtime(meta: &std::fs::Metadata) -> Option<i64> {
 }
 
 /// Info about a path on the transfer's destination side, or `None` if absent.
+///
+/// Arguments: `direction` — picks the side to stat (local for downloads, remote
+/// for uploads); `path` — the path to stat; `session` — supplies the remote
+/// filesystem for uploads.
+/// Returns: the size and mtime of the file, or `None` if it does not exist or
+/// cannot be stat'ed.
 async fn dest_info(direction: Direction, path: &str, session: &Session) -> Option<FileInfo> {
     match direction {
         Direction::Download => tokio::fs::metadata(path).await.ok().map(|m| FileInfo {
@@ -68,6 +83,13 @@ async fn dest_info(direction: Direction, path: &str, session: &Session) -> Optio
 }
 
 /// Info about the transfer's source file (best-effort; zeros on error).
+///
+/// Arguments: `item` — the transfer (its direction picks the side to stat and
+/// `src` is the path); `session` — supplies the remote filesystem for
+/// downloads.
+/// Returns: the source size and mtime, or `FileInfo { size: 0, mtime: None }`
+/// if the stat fails. Used only to describe the incoming file in a conflict
+/// prompt, so a failed probe is not treated as an error.
 async fn src_info(item: &TransferItem, session: &Session) -> FileInfo {
     match item.direction {
         Direction::Download => session
@@ -91,6 +113,12 @@ async fn src_info(item: &TransferItem, session: &Session) -> FileInfo {
 }
 
 /// Size of the existing destination file (0 if absent).
+///
+/// Arguments: `item` — the transfer (probes its originally-requested `dest`,
+/// not the effective one); `session` — supplies the remote filesystem for
+/// uploads.
+/// Returns: the destination size in bytes, or 0 if it does not exist. This is
+/// the append offset for a Resume conflict resolution.
 async fn existing_dest_size(item: &TransferItem, session: &Session) -> u64 {
     dest_info(item.direction, &item.dest, session)
         .await
@@ -99,6 +127,12 @@ async fn existing_dest_size(item: &TransferItem, session: &Session) -> u64 {
 }
 
 /// Split a path into (stem, extension); extension keeps its leading dot.
+///
+/// Arguments: `path` — the path to split; only the final `/`- or `\`-separated
+/// component is examined for a dot.
+/// Returns: `(stem, ext)` where `stem` is the full path up to the last dot and
+/// `ext` includes the dot. A name with no dot, or a dotfile whose only dot is
+/// leading, yields the whole path and an empty extension.
 fn split_ext(path: &str) -> (String, String) {
     let base = path.rfind(['/', '\\']).map(|i| i + 1).unwrap_or(0);
     let name = &path[base..];
@@ -109,6 +143,12 @@ fn split_ext(path: &str) -> (String, String) {
 }
 
 /// Find a non-conflicting destination name by inserting " (n)".
+///
+/// Arguments: `item` — the transfer whose `dest` is the starting point;
+/// `session` — supplies the remote filesystem for existence checks.
+/// Returns: `dest` unchanged if nothing is there, else the first free
+/// `stem (n)ext` for n in 1..10_000. If all of those are taken, a name with a
+/// random UUID in place of `n` (not re-checked for existence).
 async fn unique_dest(item: &TransferItem, session: &Session) -> String {
     if dest_info(item.direction, &item.dest, session).await.is_none() {
         return item.dest.clone();
@@ -128,6 +168,10 @@ async fn unique_dest(item: &TransferItem, session: &Session) -> String {
 /// Returns `Some(resolution)` to proceed (Overwrite/Rename/Resume), or `None`
 /// to Skip. Prompts the user (AwaitingUser + conflict event) when the policy is
 /// Ask and no batch-wide choice applies.
+///
+/// Arguments: `shared` — the queue state holding the batch and default policies
+/// and the pending-conflict channels; `item` — the transfer being resolved;
+/// `session` — supplies the remote filesystem for the destination probe.
 async fn resolve_conflict(
     shared: &QueueShared,
     item: &TransferItem,
@@ -175,6 +219,11 @@ const SAMPLE_PERIOD: Duration = Duration::from_millis(100);
 const RATE_ALPHA: f64 = 0.3;
 
 /// Pop the next queued transfer id, waiting for one to arrive.
+///
+/// Arguments: `shared` — the queue state holding the pending FIFO and its
+/// notifier.
+/// Returns: the id at the front of the FIFO, awaiting a notification while the
+/// FIFO is empty. The id is removed from the FIFO.
 async fn next_queued(shared: &QueueShared) -> TransferId {
     loop {
         if let Some(id) = shared.pending.lock().unwrap().pop_front() {
@@ -205,6 +254,11 @@ pub(crate) async fn run_worker(shared: Arc<QueueShared>) {
 /// Process a single transfer end to end (with retries), emitting state
 /// transitions. Each attempt checks out a fresh pooled channel so the
 /// interactive channel stays free and a dead channel doesn't sink retries.
+///
+/// Arguments: `shared` — the queue state (items, sessions, and the event bus);
+/// `id` — the transfer to run. Returns early without a state change if the id
+/// is unknown or the item is no longer Queued (e.g. cancelled while waiting).
+/// The item ends in `Done`, `Skipped`, `Paused`, `Canceled`, or `Failed`.
 async fn process(shared: Arc<QueueShared>, id: TransferId) {
     let Some(item) = shared.items.get(&id).map(|e| e.clone()) else {
         return;

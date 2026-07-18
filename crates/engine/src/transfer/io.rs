@@ -31,6 +31,8 @@ pub struct CopyOptions {
 
 impl CopyOptions {
     /// Options for an atomic download (write `.part`, then rename).
+    ///
+    /// Returns: options with `use_part` set and a zero resume offset.
     pub fn download() -> Self {
         CopyOptions {
             use_part: true,
@@ -39,6 +41,8 @@ impl CopyOptions {
     }
 
     /// Options for a direct upload.
+    ///
+    /// Returns: options with `use_part` cleared and a zero resume offset.
     pub fn upload() -> Self {
         CopyOptions {
             use_part: false,
@@ -48,6 +52,10 @@ impl CopyOptions {
 
     /// Options to append directly to an existing destination from `offset`
     /// (used by the Resume conflict resolution — no `.part`, no rename).
+    ///
+    /// Arguments: `offset` — byte offset to start reading/writing from.
+    /// Returns: options with `use_part` cleared and `resume_offset` set to
+    /// `offset`.
     pub fn resume_existing(offset: u64) -> Self {
         CopyOptions {
             use_part: false,
@@ -56,6 +64,9 @@ impl CopyOptions {
     }
 
     /// Set the resume offset.
+    ///
+    /// Arguments: `offset` — byte offset to resume from (0 to start fresh).
+    /// Returns: these options with `resume_offset` replaced by `offset`.
     pub fn with_resume(mut self, offset: u64) -> Self {
         self.resume_offset = offset;
         self

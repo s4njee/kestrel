@@ -9,6 +9,9 @@ use crate::dto::DirEntryDto;
 use crate::state::AppState;
 
 /// Look up a session by id string, or return a webview-friendly error.
+///
+/// Arguments: `id` — the session id as a string.
+/// Returns: the parsed [`Uuid`], or the parse error rendered as a string.
 fn session_id(id: &str) -> CmdResult<Uuid> {
     Uuid::parse_str(id).map_err(|e| e.to_string())
 }
