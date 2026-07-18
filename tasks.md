@@ -356,6 +356,113 @@ install auto-updated itself; the manual checklist is green on ≥ macOS; no
 
 ---
 
+## Epic 8 — Novel features (v1.x candidates, size L)
+
+Goal: differentiation beyond parity with Cyberduck/FileZilla. The app holds two
+assets ordinary SFTP clients don't: a **live PTY/exec channel** into the host
+(E6-S5) and an **engine-side filesystem watcher** (E4-S7). Most stories below
+compound one of those with the browser. Unordered backlog — pick by value; the
+only hard dependency is E8-S1, the shared enabler.
+
+- [ ] **E8-S1 — One-shot remote exec primitive** (S)
+  - Do: engine helper to open a session channel, run a single command
+    (`channel.exec`), capture stdout/stderr/exit status with a timeout, and
+    close. No PTY, not the user's shell — a quiet side channel. Expose as
+    `Session::exec(cmd) -> Result<ExecOutput>`; no IPC command yet (backend
+    consumers only). Guard every consumer behind "command failed → fall back to
+    pure-SFTP behavior" so exotic/restricted servers (no shell, sftp-only chroot)
+    lose the enhancement, never the feature.
+  - Accept: integration test against the in-process server (extend it with an
+    `exec_request` handler); timeout and nonzero-exit paths covered.
+- [ ] **E8-S2 — Tar-accelerated directory transfers** (M) Depends: E8-S1
+  - Do: recursive transfers of many small files are dominated by per-file
+    round-trips. When the remote has `tar`, download a tree as one
+    `tar -cf - dir` stream (extract locally) and upload as one stream into
+    `tar -xf -`; fall back to the per-file path (E3-S5) when probing fails.
+    Progress from bytes-through-the-pipe; keep the existing conflict semantics
+    by extracting to a temp dir then merging.
+  - Accept: engine test proves a multi-file tree round-trips via one stream and
+    that a `tar`-less server falls back; benchmark note vs per-file on ≥500
+    small files.
+- [ ] **E8-S3 — Post-transfer integrity verification** (S) Depends: E8-S1
+  - Do: optional (settings toggle) after a transfer completes: hash the remote
+    side via exec (`sha256sum`/`shasum`/`md5sum`, first available) and the local
+    side in Rust; on mismatch mark the transfer Failed-verification with a
+    toast. Skip silently when no hash tool exists.
+  - Accept: engine test with a deliberately corrupted destination detects the
+    mismatch; clean transfer verifies; no-tool server skips.
+- [ ] **E8-S4 — Edit-and-sync (open remote files in your editor)** (M)
+  - Do: "Edit" on a remote file: download to a managed temp dir, open with the
+    OS default app (opener plugin), watch it with the existing `DirWatcher`, and
+    auto-re-upload on every save (debounced), with an indicator chip listing
+    live edit sessions. Conflict-check the remote mtime before each re-upload.
+  - Accept: engine/store tests for the watch→reupload loop (tempdir-driven);
+    manual: edit in a real editor, saves appear on the server.
+- [ ] **E8-S5 — Shell ↔ pane cwd sync** (M)
+  - Do: when you `cd` in the [shell] tab, the remote pane can follow. Detect the
+    shell's cwd via OSC 7 / OSC 1337 `CurrentDir=` escape sequences (parse in
+    Terminal.svelte's data path; many shells emit these — no server config), and
+    show a `[follow]` toggle in the console tabs strip. Optionally the reverse:
+    a "cd here" action on a pane directory that types `cd <path>` into the shell.
+  - Accept: unit test the escape-sequence parser on captured byte streams;
+    manual: `cd` in the shell moves the pane with [follow] on.
+- [ ] **E8-S6 — Pane diff mode** (M)
+  - Do: a `[diff]` toggle when both panes show comparable trees: mark rows
+    same/differs (size or mtime)/only-local/only-remote with terminal-grid
+    glyphs (`=`, `≠`, `+`, `-`), and add "transfer the differences" actions.
+    Comparison is by relative path over the already-loaded listings (+ expanded
+    children); no hashing in v1 of this story.
+  - Accept: store tests for the comparison across nested expanded trees; row
+    styling driven purely by the computed mark.
+- [ ] **E8-S7 — Remote search** (M) Depends: E8-S1
+  - Do: search the remote tree from the pane (Cmd/Ctrl+F): prefer one
+    `find <root> -iname '*q*'` exec round-trip; fall back to a bounded SFTP walk
+    (reuse the E3-S5 walker, capped depth/entries) when exec is unavailable.
+    Results as a flat list that jumps the pane to the containing directory.
+  - Accept: engine tests for both paths (exec on the test server; walker
+    fallback); cancel mid-search leaves no orphan work.
+- [ ] **E8-S8 — Command palette** (S)
+  - Do: Cmd/Ctrl+K opens a terminal-grid palette (monospace, `>` prompt)
+    fuzzy-matching every existing action (connect, upload, download, refresh,
+    new folder, settings, tab switch, bookmarks by name…) reusing the keymap's
+    action registry rather than a parallel list.
+  - Accept: component tests for filtering + Enter dispatch; every ShortcutAction
+    reachable; Escape restores focus to the pane.
+- [ ] **E8-S9 — Multiple concurrent sessions (host tabs)** (L)
+  - Do: the engine already keys everything by SessionId — the UI is the
+    single-session part. Add a session strip (terminal-grid tabs) above the
+    remote pane: each session gets its own remote pane state + shell; transfers
+    from any session share the one queue (already true). Disconnect closes one
+    tab, not the world.
+  - Accept: two sessions to two in-process servers browse independently and
+    both transfer into the shared queue; store tests for per-session pane state.
+- [ ] **E8-S10 — Frecency path jump** (S)
+  - Do: record every visited remote directory per bookmark (frequency + recency,
+    zoxide-style, persisted in app data); `Cmd/Ctrl+J` or typing a fragment into
+    the path field jumps to the best match ("dep" → `/var/www/deploy`).
+  - Accept: store tests for the frecency ranking + persistence pruning; matches
+    only offered for the connected bookmark.
+- [ ] **E8-S11 — Per-bookmark on-connect snippets** (S)
+  - Do: optional list of shell lines on a bookmark (e.g. `cd /srv/app`,
+    `sudo -i`) typed into the [shell] tab after connect — stored in
+    bookmarks.json (they are commands, not secrets; document that plainly), with
+    a per-bookmark opt-out.
+  - Accept: bookmark schema/store tests; snippets fire once per connect and
+    appear in the terminal like typed input.
+- [ ] **E8-S12 — Connection health HUD** (S)
+  - Do: measure round-trip latency with a tiny periodic SFTP stat and show it
+    live in the topbar next to `● live` (`▁▂▃` sparkline + ms, green/amber/red
+    by threshold), plus aggregate transfer throughput when the queue is active.
+    Piggyback on the existing keepalive cadence — no new traffic when idle.
+  - Accept: engine emits latency samples on the event bus (test via the
+    in-process server); HUD renders from a samples store with component tests.
+
+**Gate M8**: shipped stories each keep the pure-SFTP fallback working (verified
+against a server with exec disabled), and none regress the M2 throughput
+benchmark or the gate suite.
+
+---
+
 ## Appendix A — Architecture contracts
 
 ### Repo layout
