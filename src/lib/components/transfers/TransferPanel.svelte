@@ -1,9 +1,10 @@
 <!--
-  TransferPanel.svelte — Bottom transfer dock.
+  TransferPanel.svelte — Transfer queue stream.
 
-  Collapsible panel listing all transfers from the transfers store. The header
-  shows the active count; expanding reveals the rows (or an empty state) and a
-  "Clear finished" action. Expanded state lives in the ui store.
+  Terminal-grid `── transfer queue ──` region listing all transfers from the
+  store. The header rule toggles expansion and shows the active count; expanding
+  reveals the rows (or an empty note) plus [pause all] / [clear] text actions.
+  Expanded state lives in the ui store.
 -->
 <script lang="ts">
   import { ui } from "$lib/stores/ui.svelte";
@@ -15,20 +16,31 @@
     resumeTransfer,
     pauseAllTransfers,
   } from "$lib/ipc/commands";
-  import Badge from "$lib/components/common/Badge.svelte";
   import TransferRow from "./TransferRow.svelte";
 
-  /** Cancel a transfer via the backend. */
+  /**
+   * Cancel a transfer via the backend.
+   *
+   * @param id - the transfer to cancel.
+   */
   function onCancel(id: string): void {
     void cancelTransfer(id);
   }
 
-  /** Pause a transfer. */
+  /**
+   * Pause a transfer.
+   *
+   * @param id - the transfer to pause.
+   */
   function onPause(id: string): void {
     void pauseTransfer(id);
   }
 
-  /** Resume a paused transfer. */
+  /**
+   * Resume a paused transfer.
+   *
+   * @param id - the transfer to resume.
+   */
   function onResume(id: string): void {
     void resumeTransfer(id);
   }
@@ -45,27 +57,28 @@
   }
 </script>
 
-<section class="transfer-panel" class:expanded={ui.transferPanelExpanded}>
-  <div class="dock-header">
-    <button class="toggle" onclick={() => ui.toggleTransferPanel()}>
+<section class="stream" class:expanded={ui.transferPanelExpanded}>
+  <div class="hr">
+    <button class="hr-toggle" onclick={() => ui.toggleTransferPanel()}>
       <span class="chevron" class:open={ui.transferPanelExpanded}>▸</span>
-      <span class="label">Transfers</span>
-      <Badge count={transfers.activeCount} />
+      ── transfer queue ──
+      {#if transfers.activeCount > 0}<span class="count">{transfers.activeCount} active</span>{/if}
+      ──────────
     </button>
     {#if ui.transferPanelExpanded && transfers.list.length > 0}
-      <span class="header-actions">
+      <span class="actions">
         {#if transfers.activeCount > 0}
-          <button class="link" onclick={onPauseAll}>Pause all</button>
+          <button class="link" onclick={onPauseAll}>[pause all]</button>
         {/if}
-        <button class="link" onclick={onClear}>Clear finished</button>
+        <button class="link" onclick={onClear}>[clear]</button>
       </span>
     {/if}
   </div>
 
   {#if ui.transferPanelExpanded}
-    <div class="dock-body">
+    <div class="body">
       {#if transfers.list.length === 0}
-        <p class="empty">No transfers yet.</p>
+        <p class="empty">— no transfers —</p>
       {:else}
         {#each transfers.list as transfer (transfer.id)}
           <TransferRow {transfer} {onCancel} {onPause} {onResume} />
@@ -76,56 +89,66 @@
 </section>
 
 <style>
-  .transfer-panel {
-    border-top: 1px solid var(--border, #d0d0d0);
-    background: var(--surface-2, #f2f2f2);
+  .stream {
+    border-top: 1px solid var(--border);
+    background: var(--stream);
+    padding: 8px 14px;
   }
-  .dock-header {
+  .hr {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-right: 12px;
+    gap: 12px;
   }
-  .toggle {
+  .hr-toggle {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 12px;
     background: none;
     border: none;
+    padding: 0;
     cursor: pointer;
-    font-size: 0.8rem;
-    color: inherit;
+    font-size: 11px;
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .chevron {
     display: inline-block;
     transition: transform 0.15s;
+    color: var(--muted);
   }
   .chevron.open {
     transform: rotate(90deg);
   }
-  .label {
-    font-weight: 600;
+  .count {
+    color: var(--accent);
   }
-  .header-actions {
+  .actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
+    flex: 0 0 auto;
   }
   .link {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 0.75rem;
-    color: var(--accent, #396cd8);
+    font-size: 11px;
+    color: var(--muted);
+    padding: 0;
   }
-  .dock-body {
-    max-height: 220px;
+  .link:hover {
+    color: var(--accent);
+  }
+  .body {
+    margin-top: 6px;
+    max-height: 168px;
     overflow: auto;
-    padding: 6px 12px 12px;
   }
   .empty {
-    color: var(--muted, #888);
-    font-size: 0.8rem;
-    margin: 8px 0;
+    color: var(--dim);
+    font-size: 12px;
+    margin: 4px 0;
   }
 </style>

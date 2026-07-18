@@ -5,6 +5,7 @@
 // so it can be unit-tested without a live Tauri channel.
 
 import {
+  fromBase64,
   subscribeSessionEvents,
   subscribeTransferEvents,
   type SessionEvent,
@@ -15,6 +16,29 @@ import { prompts } from "$lib/stores/prompts.svelte";
 import { transfers } from "$lib/stores/transfers.svelte";
 import { conflicts } from "$lib/stores/conflicts.svelte";
 import { toasts } from "$lib/stores/toasts.svelte";
+import { logs } from "$lib/stores/logs.svelte";
+
+/** Handler invoked with decoded shell output (set by the terminal component). */
+let shellDataHandler: ((shellId: string, data: Uint8Array) => void) | null = null;
+/** Handler invoked when a shell ends (set by the terminal component). */
+let shellClosedHandler: ((shellId: string) => void) | null = null;
+
+/**
+ * Register the interactive-shell handlers.
+ *
+ * The terminal component owns rendering, so it injects these rather than this
+ * routing module reaching into the DOM.
+ *
+ * @param onData - called with decoded output bytes, or null to clear.
+ * @param onClosed - called when the shell ends, or null to clear.
+ */
+export function setShellHandlers(
+  onData: ((shellId: string, data: Uint8Array) => void) | null,
+  onClosed: ((shellId: string) => void) | null,
+): void {
+  shellDataHandler = onData;
+  shellClosedHandler = onClosed;
+}
 
 /** Handler invoked when the watched local directory changes (set by the shell). */
 let localDirChangedHandler: ((path: string) => void) | null = null;
@@ -40,6 +64,10 @@ export function routeSessionEvent(event: SessionEvent): void {
   switch (event.type) {
     case "connectionState":
       sessions.setConnectionState(event.sessionId, event.state);
+      if (event.state === "reconnecting") logs.status("Connection lost — reconnecting…");
+      else if (event.state === "disconnected")
+        logs.status(`Disconnected${event.reason ? ` — ${event.reason}` : ""}`);
+      else if (event.state === "connected") logs.status("Connection re-established", true);
       break;
     case "hostKeyPrompt":
       prompts.setHostKeyPrompt(event);
@@ -49,6 +77,12 @@ export function routeSessionEvent(event: SessionEvent): void {
       break;
     case "localDirChanged":
       localDirChangedHandler?.(event.path);
+      break;
+    case "shellData":
+      shellDataHandler?.(event.shellId, fromBase64(event.data));
+      break;
+    case "shellClosed":
+      shellClosedHandler?.(event.shellId);
       break;
   }
 }

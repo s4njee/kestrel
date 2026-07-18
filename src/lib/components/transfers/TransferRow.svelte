@@ -1,12 +1,15 @@
 <!--
-  TransferRow.svelte — One transfer in the dock.
+  TransferRow.svelte — One transfer in the queue stream.
 
-  Shows direction, name, a progress bar, transferred/total bytes, current rate,
-  and state. A cancel button appears while the transfer is active.
+  Terminal-grid row: direction arrow, filename, an ASCII progress bar
+  (`[████░░░░]`), percent, and size, with the rate or state trailing. Completed
+  transfers dim the arrow + percent; pause/resume/cancel appear as text actions
+  while relevant.
 
   Props:
   - transfer: Transfer          — the transfer to render.
   - onCancel: (id) => void      — cancel this transfer.
+  - onPause?/onResume?: (id) => void — pause/resume controls.
 -->
 <script lang="ts">
   import type { Transfer } from "$lib/stores/transfers.svelte";
@@ -26,118 +29,132 @@
   );
   let canPause = $derived(transfer.state === "queued" || transfer.state === "running");
   let paused = $derived(transfer.state === "paused");
+  let done = $derived(transfer.state === "done");
   let percent = $derived(
-    transfer.size > 0 ? Math.min(100, (transfer.bytes / transfer.size) * 100) : 0,
+    transfer.size > 0 ? Math.min(100, Math.round((transfer.bytes / transfer.size) * 100)) : 0,
   );
   let arrow = $derived(transfer.direction === "upload" ? "↑" : "↓");
+
+  // 20-cell ASCII progress bar (█ filled, ░ empty).
+  let bar = $derived.by(() => {
+    const filled = Math.max(0, Math.min(20, Math.round(percent / 5)));
+    return "█".repeat(filled) + "░".repeat(20 - filled);
+  });
 </script>
 
-<div class="row" data-state={transfer.state}>
-  <span class="arrow" class:up={transfer.direction === "upload"}>{arrow}</span>
-  <div class="main">
-    <div class="line">
-      <span class="name" title={transfer.name}>{transfer.name}</span>
-      <span class="meta">
-        {#if transfer.state === "running"}
-          {formatBytes(transfer.bytes)} / {formatBytes(transfer.size)} · {formatRate(
-            transfer.rateBps,
-          )}
-        {:else if transfer.state === "failed"}
-          <span class="failed" title={transfer.error ?? ""}>Failed</span>
-        {:else if transfer.state === "paused"}
-          Paused · {formatBytes(transfer.bytes)} / {formatBytes(transfer.size)}
-        {:else}
-          {transfer.state}
-        {/if}
-      </span>
-    </div>
-    <div class="bar" role="progressbar" aria-valuenow={Math.round(percent)}>
-      <div class="fill" data-state={transfer.state} style:width="{percent}%"></div>
-    </div>
-  </div>
-  {#if paused}
-    <button class="act" title="Resume" aria-label="Resume" onclick={() => onResume?.(transfer.id)}
-      >▶</button
-    >
-  {:else if canPause}
-    <button class="act" title="Pause" aria-label="Pause" onclick={() => onPause?.(transfer.id)}
-      >⏸</button
-    >
-  {/if}
-  {#if active}
-    <button class="cancel" title="Cancel" aria-label="Cancel" onclick={() => onCancel(transfer.id)}
-      >✕</button
-    >
-  {/if}
+<div class="q-row" data-state={transfer.state}>
+  <span class="q-arrow" class:done>{arrow}</span>
+  <span class="q-file" title={transfer.name}>{transfer.name}</span>
+  <span class="q-bracket">[</span><span class="q-bar" class:done>{bar}</span><span class="q-bracket"
+    >]</span
+  >
+  <span class="q-pct" class:done class:failed={transfer.state === "failed"}>{percent}%</span>
+  <span class="q-size">{formatBytes(transfer.size)}</span>
+  <span class="q-meta">
+    {#if transfer.state === "running"}
+      {formatRate(transfer.rateBps)}
+    {:else if transfer.state === "failed"}
+      <span class="failed" title={transfer.error ?? ""}>failed</span>
+    {:else if transfer.state !== "done"}
+      {transfer.state}
+    {/if}
+  </span>
+  <span class="q-actions">
+    {#if paused}
+      <button class="act" aria-label="Resume" onclick={() => onResume?.(transfer.id)}
+        >[resume]</button
+      >
+    {:else if canPause}
+      <button class="act" aria-label="Pause" onclick={() => onPause?.(transfer.id)}>[pause]</button>
+    {/if}
+    {#if active}
+      <button class="act cancel" aria-label="Cancel" onclick={() => onCancel(transfer.id)}
+        >[x]</button
+      >
+    {/if}
+  </span>
 </div>
 
 <style>
-  .row {
+  .q-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-    font-size: 0.8rem;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text);
   }
-  .arrow {
-    color: var(--accent, #396cd8);
-    font-weight: 700;
+  .q-arrow {
+    width: 14px;
+    text-align: center;
+    color: var(--muted);
   }
-  .arrow.up {
-    color: #2e9e5b;
+  .q-arrow.done {
+    color: var(--dim);
   }
-  .main {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .line {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .name {
+  .q-file {
+    width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .meta {
-    color: var(--muted, #777);
-    white-space: nowrap;
+  .q-bracket {
+    color: var(--dim);
+  }
+  /* The bar + percent are the one accented element: in-flight progress. */
+  .q-bar {
+    color: var(--accent);
+    letter-spacing: 1px;
+    font-size: 11px;
+    white-space: pre;
+  }
+  .q-bar.done {
+    color: var(--dim);
+  }
+  .q-pct {
+    width: 42px;
+    text-align: right;
+    color: var(--accent);
+  }
+  .q-pct.done {
+    color: var(--dim);
+  }
+  .q-pct.failed {
+    color: var(--danger);
+  }
+  .q-size {
+    width: 78px;
+    text-align: right;
+    color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
-  .failed {
-    color: #c0392b;
-  }
-  .bar {
-    height: 5px;
-    border-radius: 3px;
-    background: var(--surface-2, #e6e6e6);
+  .q-meta {
+    flex: 1 1 auto;
+    color: var(--dim);
+    white-space: nowrap;
     overflow: hidden;
-    margin-top: 3px;
+    text-overflow: ellipsis;
   }
-  .fill {
-    height: 100%;
-    background: var(--accent, #396cd8);
-    transition: width 0.1s linear;
+  .failed {
+    color: var(--danger);
   }
-  .fill[data-state="done"] {
-    background: #2e9e5b;
+  .q-actions {
+    display: flex;
+    gap: 8px;
+    flex: 0 0 auto;
   }
-  .fill[data-state="failed"] {
-    background: #c0392b;
-  }
-  .cancel,
   .act {
-    border: none;
     background: none;
+    border: none;
     cursor: pointer;
-    color: var(--muted, #888);
-    font-size: 0.85rem;
+    color: var(--muted);
+    font-size: 11px;
+    padding: 0;
   }
   .act:hover {
-    color: var(--accent, #396cd8);
+    color: var(--accent);
   }
   .cancel:hover {
-    color: #c0392b;
+    color: var(--danger);
   }
 </style>

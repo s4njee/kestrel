@@ -17,7 +17,12 @@
   let changed = $derived(prompt?.status === "CHANGED");
   let acknowledged = $state(false);
 
-  /** Respond to the pending prompt and clear it. */
+  /**
+   * Respond to the pending prompt and clear it.
+   *
+   * @param accept - true to trust the host key (persisting it to known_hosts),
+   *   false to reject it.
+   */
   async function respond(accept: boolean): Promise<void> {
     if (!prompt) return;
     const id = prompt.promptId;

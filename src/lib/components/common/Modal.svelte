@@ -20,7 +20,11 @@
 
   let { title, onClose, children }: Props = $props();
 
-  /** Close when Escape is pressed. */
+  /**
+   * Close when Escape is pressed.
+   *
+   * @param event - the window keydown event.
+   */
   function onKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape") onClose?.();
   }

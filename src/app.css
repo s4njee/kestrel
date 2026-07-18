@@ -1,38 +1,46 @@
 /*
  * app.css — Global styles and theme tokens.
  *
- * Defines CSS custom properties consumed by components (surfaces, borders,
- * accent, muted text) with a light default and a dark override via
- * prefers-color-scheme. Also a minimal reset and a full-viewport app shell so
- * the dual-pane layout fills the window.
+ * A neutral, near-black monospace shell: the palette is a grey ramp (--bg,
+ * --surface, --border, --text, --bright, --muted, --dim) and green is reserved
+ * as a single sparse accent (--accent), used only for the brand mark, the live
+ * pill, the active pane, selection, in-flight progress, the console caret, and
+ * success lines. Tokens are role-named (not hue-named) so components stay
+ * readable and the accent can be retuned in one place. IBM Plex Mono throughout.
  */
 
 :root {
-  --bg: #f6f6f6;
-  --surface: #ffffff;
-  --surface-2: #f0f0f0;
-  --border: #d4d4d4;
-  --text: #1a1a1a;
-  --muted: #666666;
-  --accent: #396cd8;
+  /* Surfaces — neutral greys, darkest at the edges of the shell. */
+  --bg: #0d0d0d;
+  --surface: #141414;
+  --surface-2: #191919;
+  --stream: #111111;
+  --con: #0a0a0a;
 
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 14px;
+  /* Lines. */
+  --border: #2b2b2b;
+  --grid: #1f1f1f;
+
+  /* Text ramp: bright (emphasis) → text (body) → muted → dim (labels). */
+  --bright: #e6e6e6;
+  --text: #c9c9c9;
+  --muted: #8a8a8a;
+  --dim: #5e5e5e;
+
+  /* The one accent. Use sparingly. */
+  --accent: #4ade80;
+
+  /* Semantic states. */
+  --danger: #f87171;
+  --warn: #e0b341;
+
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  font-family: var(--mono);
+  font-size: 13px;
   color: var(--text);
   background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1e1e1e;
-    --surface: #262626;
-    --surface-2: #2f2f2f;
-    --border: #3a3a3a;
-    --text: #eaeaea;
-    --muted: #9a9a9a;
-    --accent: #4b7fe6;
-  }
 }
 
 * {
@@ -48,9 +56,34 @@ body {
 
 body {
   overflow: hidden;
+  font-family: var(--mono);
 }
 
-button {
-  font-family: inherit;
+button,
+input,
+select,
+textarea {
+  font-family: var(--mono);
   color: inherit;
+}
+
+/* Neutral scrollbars for the dark shell. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: rgba(74, 222, 128, 0.2);
 }

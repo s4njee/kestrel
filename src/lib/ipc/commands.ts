@@ -144,7 +144,10 @@ export type SessionEvent =
       instructions: string;
       fields: { text: string; echo: boolean }[];
     }
-  | { type: "localDirChanged"; path: string };
+  | { type: "localDirChanged"; path: string }
+  /** Raw shell output; `data` is base64 (terminal bytes are not valid UTF-8). */
+  | { type: "shellData"; shellId: string; data: string }
+  | { type: "shellClosed"; shellId: string };
 
 /**
  * Connect and authenticate a session.
@@ -173,6 +176,79 @@ export function disconnect(sessionId: string): Promise<void> {
  */
 export function respondPrompt(promptId: string, reply: PromptReply): Promise<void> {
   return invoke("respond_prompt", { promptId, reply });
+}
+
+/**
+ * Open an interactive shell (PTY) on a session.
+ *
+ * @param sessionId - the session to run the shell on.
+ * @param cols - initial terminal width in characters.
+ * @param rows - initial terminal height in rows.
+ * @returns the new shell's id; output then arrives as `shellData` events.
+ */
+export function openShell(sessionId: string, cols: number, rows: number): Promise<string> {
+  return invoke("open_shell", { sessionId, cols, rows });
+}
+
+/**
+ * Send keystrokes to a shell.
+ *
+ * @param shellId - the shell.
+ * @param data - the input bytes; base64-encoded for transport.
+ */
+export function shellWrite(shellId: string, data: Uint8Array): Promise<void> {
+  return invoke("shell_write", { shellId, data: toBase64(data) });
+}
+
+/**
+ * Tell a shell its terminal was resized (sends SSH `window-change`).
+ *
+ * @param shellId - the shell.
+ * @param cols - the new width in characters.
+ * @param rows - the new height in rows.
+ */
+export function shellResize(shellId: string, cols: number, rows: number): Promise<void> {
+  return invoke("shell_resize", { shellId, cols, rows });
+}
+
+/**
+ * Close a shell.
+ *
+ * @param shellId - the shell to close.
+ */
+export function closeShell(shellId: string): Promise<void> {
+  return invoke("close_shell", { shellId });
+}
+
+/**
+ * Encode bytes as base64 for transport to the backend.
+ *
+ * Chunked rather than spread into `String.fromCharCode(...)`, which blows the
+ * argument limit on large pastes.
+ *
+ * @param bytes - the raw bytes.
+ * @returns the base64 text.
+ */
+export function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Decode base64 shell output into bytes.
+ *
+ * @param data - the base64 text from a `shellData` event.
+ * @returns the raw bytes to feed the terminal.
+ */
+export function fromBase64(data: string): Uint8Array {
+  const binary = atob(data);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
 }
 
 /**
@@ -237,14 +313,26 @@ export function statEntry(sessionId: string, path: string): Promise<DirEntry> {
   return invoke("stat_entry", { sessionId, path });
 }
 
-/** Rename/move an entry (remote if `sessionId` is given, else local). */
+/**
+ * Rename/move an entry (remote if `sessionId` is given, else local).
+ *
+ * @param sessionId - the session to act on, or null to rename on the local disk.
+ * @param from - the current path.
+ * @param to - the destination path.
+ */
 export function renameEntry(sessionId: string | null, from: string, to: string): Promise<void> {
   return sessionId
     ? invoke("rename_entry", { sessionId, from, to })
     : invoke("local_rename", { from, to });
 }
 
-/** Delete entries (remote if `sessionId` is given, else local). */
+/**
+ * Delete entries (remote if `sessionId` is given, else local).
+ *
+ * @param sessionId - the session to act on, or null to delete on the local disk.
+ * @param paths - the paths to delete.
+ * @param recursive - whether to delete directories and their contents.
+ */
 export function deleteEntries(
   sessionId: string | null,
   paths: string[],
@@ -255,12 +343,23 @@ export function deleteEntries(
     : invoke("local_delete", { paths, recursive });
 }
 
-/** Create a directory (remote if `sessionId` is given, else local). */
+/**
+ * Create a directory (remote if `sessionId` is given, else local).
+ *
+ * @param sessionId - the session to act on, or null to create on the local disk.
+ * @param path - the directory path to create.
+ */
 export function makeDir(sessionId: string | null, path: string): Promise<void> {
   return sessionId ? invoke("mkdir", { sessionId, path }) : invoke("local_mkdir", { path });
 }
 
-/** Set Unix permission bits (remote if `sessionId` is given, else local). */
+/**
+ * Set Unix permission bits (remote if `sessionId` is given, else local).
+ *
+ * @param sessionId - the session to act on, or null to chmod on the local disk.
+ * @param path - the path to modify.
+ * @param mode - the Unix permission bits to apply.
+ */
 export function setPermissions(
   sessionId: string | null,
   path: string,

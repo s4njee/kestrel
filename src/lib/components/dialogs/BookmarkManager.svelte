@@ -23,7 +23,12 @@
 
   let { onConnect, onEdit, onAdd }: Props = $props();
 
-  /** Human label for a bookmark's auth method. */
+  /**
+   * Human label for a bookmark's auth method.
+   *
+   * @param b - the bookmark whose auth method is labelled.
+   * @returns the display label for the bookmark's auth method.
+   */
   function methodLabel(b: Bookmark): string {
     switch (b.authMethod) {
       case "password":
@@ -37,7 +42,11 @@
     }
   }
 
-  /** Delete a bookmark after confirmation. */
+  /**
+   * Delete a bookmark after confirmation.
+   *
+   * @param b - the bookmark to delete; its name is shown in the confirm prompt.
+   */
   async function remove(b: Bookmark): Promise<void> {
     if (confirm(`Delete bookmark "${b.name}"?`)) await bookmarks.remove(b.id);
   }

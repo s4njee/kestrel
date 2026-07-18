@@ -16,7 +16,12 @@
   let conflict = $derived(conflicts.current);
   let applyToAll = $state(false);
 
-  /** Answer the current conflict and advance to the next. */
+  /**
+   * Answer the current conflict and advance to the next.
+   *
+   * @param resolution - the choice to apply, to this conflict alone or to the whole
+   *   batch when "apply to all" is checked.
+   */
   async function choose(resolution: ConflictResolution): Promise<void> {
     if (!conflict) return;
     const id = conflict.id;

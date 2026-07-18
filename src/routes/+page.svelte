@@ -15,6 +15,7 @@
   import { prompts } from "$lib/stores/prompts.svelte";
   import { bookmarks } from "$lib/stores/bookmarks.svelte";
   import { settings } from "$lib/stores/settings.svelte";
+  import { logs } from "$lib/stores/logs.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents, setLocalDirChangedHandler } from "$lib/ipc/events";
   import { respondPrompt } from "$lib/ipc/commands";
@@ -65,7 +66,12 @@
   // The bookmark prefilling the connect dialog: null = a fresh connection.
   let connectSeed = $state<Bookmark | null>(null);
 
-  /** Open the connect dialog, optionally prefilled from a bookmark. */
+  /**
+   * Open the connect dialog, optionally prefilled from a bookmark.
+   *
+   * @param seed - the bookmark to prefill from; null (the default) for a fresh
+   *   connection.
+   */
   function openConnect(seed: Bookmark | null = null): void {
     connectSeed = seed;
     showConnect = true;
@@ -74,15 +80,20 @@
   let active = $derived(sessions.active);
   let connected = $derived(active !== null);
   let connectionLabel = $derived(
-    active ? `${active.info.username}@${active.info.host}` : "Not connected",
+    active ? `${active.info.username}@${active.info.host}` : "not connected",
   );
+  // Topbar host label (with port) and session-detail chip.
+  let hostLabel = $derived(
+    active ? `${active.info.username}@${active.info.host}:${active.info.port}` : "not connected",
+  );
+  let metaChip = $derived(active ? "sftp · ssh-2" : "sftp");
   let remoteBanner = $derived(
     active?.state === "reconnecting" ? "Connection lost — reconnecting…" : null,
   );
 
   // Reflect the active session in the window/document title.
   $effect(() => {
-    const title = active ? `sftpapp — ${active.info.username}@${active.info.host}` : "sftpapp";
+    const title = active ? `kestrel — ${active.info.username}@${active.info.host}` : "kestrel";
     document.title = title;
     try {
       void getCurrentWindow().setTitle(title);
@@ -91,7 +102,12 @@
     }
   });
 
-  /** Load a local directory into the local pane, and watch it for changes. */
+  /**
+   * Load a local directory into the local pane, and watch it for changes.
+   *
+   * @param path - the local directory to list; failures land in the pane's error
+   *   state.
+   */
   async function loadLocal(path: string): Promise<void> {
     localPane.startLoad(path);
     try {
@@ -103,15 +119,24 @@
     }
   }
 
-  /** Load a remote directory into the remote pane (needs an active session). */
+  /**
+   * Load a remote directory into the remote pane (needs an active session).
+   *
+   * @param path - the remote directory to list; a no-op when no session is active,
+   *   and failures land in the pane's error state.
+   */
   async function loadRemote(path: string): Promise<void> {
     const id = sessions.active?.info.id;
     if (!id) return;
     remotePane.startLoad(path);
+    logs.command(`cd "${path}"`);
     try {
-      remotePane.setEntries(await listDir(id, path));
+      const entries = await listDir(id, path);
+      remotePane.setEntries(entries);
+      logs.status(`Directory listing successful — ${entries.length} entries`, true);
     } catch (e) {
       remotePane.setError(String(e));
+      logs.error(`list "${path}": ${String(e)}`);
     }
   }
 
@@ -120,6 +145,7 @@
   onMount(() => {
     // Guard: browser dev preview has no Tauri runtime.
     try {
+      logs.status("kestrel ready — use [connect] to open a session", true);
       void initSessionEvents();
       // Auto-refresh the local pane when its directory changes externally.
       setLocalDirChangedHandler((path) => {
@@ -150,7 +176,12 @@
     };
   });
 
-  /** Enqueue uploads for OS-dropped local file paths (to the remote pane). */
+  /**
+   * Enqueue uploads for OS-dropped local file paths (to the remote pane).
+   *
+   * @param paths - the dropped local paths; ignored when empty or when no session
+   *   or remote directory is available.
+   */
   async function onOsDrop(paths: string[]): Promise<void> {
     const id = sessions.active?.info.id;
     if (!id || !remotePane.path || paths.length === 0) return;
@@ -162,7 +193,12 @@
     }
   }
 
-  /** Handle a cross-pane drag drop. */
+  /**
+   * Handle a cross-pane drag drop.
+   *
+   * @param source - the pane the drag started in (supplies the selection).
+   * @param target - the pane dropped onto (supplies the destination directory).
+   */
   async function onPaneDrop(source: PaneKind, target: PaneKind): Promise<void> {
     const id = sessions.active?.info.id;
     if (!id) return;
@@ -185,9 +221,16 @@
     }
   }
 
-  /** Track a newly connected session and load its root. */
+  /**
+   * Track a newly connected session and load its root.
+   *
+   * @param info - the new session; becomes active, and its `/` is loaded into the
+   *   remote pane.
+   */
   function onConnected(info: SessionInfo): void {
     sessions.add(info);
+    logs.status(`Connected to ${info.host}:${info.port}`, true);
+    logs.status(`Authenticated as ${info.username}`, true);
     void loadRemote("/");
     ui.setActivePane("remote");
   }
@@ -195,6 +238,8 @@
   /**
    * Connect using a saved bookmark. If the backend can't (e.g. no saved
    * password), fall back to the connect dialog prefilled from the bookmark.
+   *
+   * @param bookmark - the saved connection to open.
    */
   async function connectFromBookmark(bookmark: Bookmark): Promise<void> {
     try {
@@ -224,6 +269,12 @@
   /**
    * Enqueue transfers for a selection: files as direct transfers, directories
    * recursively. Rows appear via transfer state events (no seeding needed).
+   *
+   * @param direction - whether the entries are uploaded or downloaded.
+   * @param sessionId - the session to transfer over.
+   * @param entries - the selected entries; files and directories are handled
+   *   separately.
+   * @param destDir - the destination directory.
    */
   async function runTransfers(
     direction: TransferDirection,
@@ -260,17 +311,65 @@
     onSubmit: (value: string) => void;
   } | null>(null);
 
-  /** The pane store for a kind. */
+  /**
+   * Expand or collapse a directory in place, lazily listing its children the
+   * first time it is opened. Collapsing keeps the cached listing so re-opening
+   * is instant; a navigate/refresh drops it.
+   *
+   * @param kind - which pane the directory lives in.
+   * @param entry - the directory row being toggled.
+   */
+  async function toggleExpand(kind: PaneKind, entry: DirEntry): Promise<void> {
+    const pane = paneOf(kind);
+    if (pane.isExpanded(entry.path)) {
+      pane.collapse(entry.path);
+      return;
+    }
+    if (!pane.hasChildren(entry.path)) {
+      const sessionId = sessionIdFor(kind);
+      if (kind === "remote" && !sessionId) return;
+      pane.setChildLoading(entry.path, true);
+      try {
+        const children = sessionId
+          ? await listDir(sessionId, entry.path)
+          : await localListDir(entry.path);
+        pane.setChildren(entry.path, children);
+      } catch (e) {
+        toasts.error(`Could not open ${entry.name}: ${String(e)}`);
+        return;
+      } finally {
+        pane.setChildLoading(entry.path, false);
+      }
+    }
+    pane.expand(entry.path);
+  }
+
+  /**
+   * The pane store for a kind.
+   *
+   * @param kind - which pane to look up.
+   * @returns the local or remote pane store.
+   */
   function paneOf(kind: PaneKind) {
     return kind === "local" ? localPane : remotePane;
   }
 
-  /** The session id to use for a pane's ops (null = local filesystem). */
+  /**
+   * The session id to use for a pane's ops (null = local filesystem).
+   *
+   * @param kind - which pane the operation targets.
+   * @returns the active session id for the remote pane, or null for the local pane
+   *   (or when no session is active).
+   */
   function sessionIdFor(kind: PaneKind): string | null {
     return kind === "remote" ? (sessions.active?.info.id ?? null) : null;
   }
 
-  /** Reload a pane after an operation. */
+  /**
+   * Reload a pane after an operation.
+   *
+   * @param kind - which pane to reload, at its current path.
+   */
   function refresh(kind: PaneKind): void {
     if (kind === "local") void loadLocal(localPane.path);
     else if (remotePane.path) void loadRemote(remotePane.path);
@@ -281,14 +380,25 @@
     refresh(ui.activePane);
   }
 
-  /** Open an entry from the pane (directories navigate). */
+  /**
+   * Open an entry from the pane (directories navigate).
+   *
+   * @param kind - the pane the entry belongs to.
+   * @param entry - the entry to open; non-directories are ignored.
+   */
   function openInPane(kind: PaneKind, entry: DirEntry): void {
     if (entry.kind !== "dir") return;
     if (kind === "local") void loadLocal(entry.path);
     else void loadRemote(entry.path);
   }
 
-  /** Rename an entry via an input dialog. */
+  /**
+   * Rename an entry via an input dialog.
+   *
+   * @param kind - the pane the entry belongs to.
+   * @param entry - the entry to rename; its name seeds the dialog and the new name
+   *   is applied in its parent directory.
+   */
   function startRename(kind: PaneKind, entry: DirEntry): void {
     inputDialog = {
       title: "Rename",
@@ -307,7 +417,11 @@
     };
   }
 
-  /** Create a new folder in a pane via an input dialog. */
+  /**
+   * Create a new folder in a pane via an input dialog.
+   *
+   * @param kind - the pane whose current directory receives the new folder.
+   */
   function startNewFolder(kind: PaneKind): void {
     inputDialog = {
       title: "New folder",
@@ -325,7 +439,12 @@
     };
   }
 
-  /** Delete the pane's selection (confirmed for directories). */
+  /**
+   * Delete the pane's selection (confirmed for directories).
+   *
+   * @param kind - the pane whose selection is staged for deletion; a no-op when
+   *   nothing is selected.
+   */
   function startDelete(kind: PaneKind): void {
     const entries = paneOf(kind).selectedEntries;
     if (entries.length > 0) deleteTarget = { kind, entries };
@@ -349,13 +468,22 @@
     refresh(kind);
   }
 
-  /** Edit an entry's permissions. */
+  /**
+   * Edit an entry's permissions.
+   *
+   * @param kind - the pane the entry belongs to.
+   * @param entry - the entry to edit; ignored when it has no permission bits.
+   */
   function startPermissions(kind: PaneKind, entry: DirEntry): void {
     if (entry.permissions == null) return;
     permsTarget = { kind, path: entry.path, mode: entry.permissions };
   }
 
-  /** Apply an edited permission mode. */
+  /**
+   * Apply an edited permission mode.
+   *
+   * @param mode - the Unix permission bits to write to the pending target.
+   */
   async function applyPermissions(mode: number): Promise<void> {
     if (!permsTarget) return;
     const { kind, path } = permsTarget;
@@ -368,12 +496,25 @@
     refresh(kind);
   }
 
-  /** Open the context menu for a right-clicked entry. */
+  /**
+   * Open the context menu for a right-clicked entry.
+   *
+   * @param kind - the pane the entry belongs to.
+   * @param entry - the right-clicked entry.
+   * @param event - the mouse event; its client coordinates position the menu.
+   */
   function openContextMenu(kind: PaneKind, entry: DirEntry, event: MouseEvent): void {
     contextMenu = { x: event.clientX, y: event.clientY, kind, entry };
   }
 
-  /** Build the context-menu items for an entry. */
+  /**
+   * Build the context-menu items for an entry.
+   *
+   * @param kind - the pane the entry belongs to; decides download vs upload.
+   * @param entry - the entry the menu acts on.
+   * @returns the menu items, with open/transfer/permissions disabled where they do
+   *   not apply.
+   */
   function menuItems(kind: PaneKind, entry: DirEntry): MenuItem[] {
     const transfer =
       kind === "remote"
@@ -398,7 +539,12 @@
     ];
   }
 
-  /** Global keyboard shortcuts (mapping in $lib/keymap; dispatch here). */
+  /**
+   * Global keyboard shortcuts (mapping in $lib/keymap; dispatch here).
+   *
+   * @param event - the window keydown event; its default is prevented only when a
+   *   shortcut actually runs.
+   */
   function onGlobalKey(event: KeyboardEvent): void {
     const action = resolveShortcut(event);
     if (!action) return;
@@ -447,11 +593,15 @@
 <div class="app">
   <Toolbar
     {connected}
+    host={hostLabel}
+    meta={metaChip}
     {canUpload}
     {canDownload}
     {onConnect}
     onUpload={upload}
     onDownload={download}
+    onRefresh={refreshActive}
+    onQueue={() => ui.toggleTransferPanel()}
     onSettings={() => (showSettings = true)}
   />
 
@@ -465,6 +615,7 @@
           onNavigate={loadLocal}
           onDrop={(src) => onPaneDrop(src, "local")}
           onContextMenu={(entry, e) => openContextMenu("local", entry, e)}
+          onToggleExpand={(entry) => void toggleExpand("local", entry)}
         />
       {/snippet}
       {#snippet right()}
@@ -477,6 +628,7 @@
             onNavigate={loadRemote}
             onDrop={(src) => onPaneDrop(src, "remote")}
             onContextMenu={(entry, e) => openContextMenu("remote", entry, e)}
+            onToggleExpand={(entry) => void toggleExpand("remote", entry)}
             banner={remoteBanner}
           />
         {:else}
@@ -493,7 +645,11 @@
   </main>
 
   <TransferPanel />
-  <StatusBar {connectionLabel} transferCount={transfers.activeCount} />
+  <StatusBar
+    {connectionLabel}
+    transferCount={transfers.activeCount}
+    sessionId={active?.info.id ?? null}
+  />
 </div>
 
 {#if showConnect}
@@ -569,6 +725,7 @@
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
+    border-bottom: 1px solid var(--border);
   }
   .bookmark-pane {
     display: flex;
@@ -576,10 +733,8 @@
     flex: 1 1 auto;
     min-height: 0;
     min-width: 0;
-    border: 1px solid var(--border, #d0d0d0);
-    border-radius: 6px;
-    margin: 6px;
+    border-left: 1px solid var(--grid);
     overflow: hidden;
-    background: var(--surface, #fff);
+    background: var(--bg);
   }
 </style>

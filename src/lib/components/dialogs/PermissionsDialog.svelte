@@ -33,7 +33,11 @@
   const classes = ["Owner", "Group", "Other"];
   const perms = ["Read", "Write", "Execute"];
 
-  /** Toggle a bit and refresh the octal field. */
+  /**
+   * Toggle a bit and refresh the octal field.
+   *
+   * @param index - position in the 9-element bit grid (owner/group/other x rwx).
+   */
   function toggle(index: number): void {
     bits[index] = !bits[index];
     octal = formatOctal(bitsToMode(bits));

@@ -1,8 +1,9 @@
 // ui.svelte.ts — Global UI state (Svelte 5 runes).
 //
 // Holds view-only state that outlives any single component: the split-pane
-// ratio (persisted to localStorage so it survives reload), which pane is
-// active, and whether the transfer dock is expanded. This is a runes store —
+// ratio and the console/shell height (both persisted to localStorage so they
+// survive reload), which pane is active, and whether the transfer dock is
+// expanded. This is a runes store —
 // a singleton class instance whose `$state` fields are reactive anywhere they
 // are read. No IPC or file access here.
 
@@ -11,6 +12,14 @@ import type { PaneKind } from "$lib/types";
 const RATIO_KEY = "sftpapp.splitRatio";
 const MIN_RATIO = 0.15;
 const MAX_RATIO = 0.85;
+
+const CONSOLE_KEY = "sftpapp.consoleHeight";
+/** Default console height: 18 text lines plus the tab strip and padding. */
+const DEFAULT_CONSOLE_HEIGHT = 360;
+/** Keep at least a couple of lines visible, and always leave room for the panes. */
+const MIN_CONSOLE_HEIGHT = 64;
+/** Never let the console take more than this share of the window. */
+const MAX_CONSOLE_FRACTION = 0.8;
 
 /**
  * Clamp a split ratio into the allowed range.
@@ -22,6 +31,26 @@ const MAX_RATIO = 0.85;
 function clampRatio(value: number): number {
   if (!Number.isFinite(value)) return 0.5;
   return Math.min(MAX_RATIO, Math.max(MIN_RATIO, value));
+}
+
+/**
+ * Clamp a console height into the allowed range.
+ *
+ * The upper bound is a fraction of the current window so the console can never
+ * squeeze the file panes off screen; it falls back to a fixed ceiling when no
+ * window is available (build/SSR).
+ *
+ * @param value - proposed height in pixels.
+ * @returns the value constrained to [MIN_CONSOLE_HEIGHT, 80% of the window];
+ *   falls back to the default for non-finite input.
+ */
+function clampConsoleHeight(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_CONSOLE_HEIGHT;
+  const ceiling =
+    typeof window !== "undefined" && window.innerHeight > 0
+      ? window.innerHeight * MAX_CONSOLE_FRACTION
+      : 1000;
+  return Math.min(Math.max(MIN_CONSOLE_HEIGHT, value), Math.max(MIN_CONSOLE_HEIGHT, ceiling));
 }
 
 /**
@@ -47,9 +76,20 @@ function loadRatio(): number {
   return raw == null ? 0.5 : clampRatio(Number.parseFloat(raw));
 }
 
+/**
+ * Read the persisted console height from localStorage.
+ *
+ * @returns the stored height, or the default when unavailable/invalid.
+ */
+function loadConsoleHeight(): number {
+  const raw = storage()?.getItem(CONSOLE_KEY);
+  return raw == null ? DEFAULT_CONSOLE_HEIGHT : clampConsoleHeight(Number.parseFloat(raw));
+}
+
 /** Reactive singleton backing the application shell. */
 class UiStore {
   #splitRatio = $state(loadRatio());
+  #consoleHeight = $state(loadConsoleHeight());
   #activePane = $state<PaneKind>("local");
   #transferPanelExpanded = $state(false);
 
@@ -66,6 +106,21 @@ class UiStore {
   set splitRatio(value: number) {
     this.#splitRatio = clampRatio(value);
     storage()?.setItem(RATIO_KEY, String(this.#splitRatio));
+  }
+
+  /** Height of the bottom console/shell region, in pixels. */
+  get consoleHeight(): number {
+    return this.#consoleHeight;
+  }
+
+  /**
+   * Set and persist the console/shell height.
+   *
+   * @param value - proposed height in pixels; clamped before storing.
+   */
+  set consoleHeight(value: number) {
+    this.#consoleHeight = clampConsoleHeight(value);
+    storage()?.setItem(CONSOLE_KEY, String(this.#consoleHeight));
   }
 
   /** The pane that currently has keyboard focus / is the action target. */

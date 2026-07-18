@@ -1,6 +1,6 @@
 # Tasks — Cross-Platform SFTP Client (Tauri v2 + Rust + Svelte 5)
 
-> **For the implementing agent.** This file is the work backlog for building the app described below, broken into epics (E0–E5) and stories (Ex-Sy). It is self-contained: everything you need is in this file. The full design doc lives at `~/.claude/plans/i-want-to-draft-polymorphic-perlis.md` (optional deeper context; this file wins on conflict).
+> **For the implementing agent.** This file is the work backlog for building the app described below, broken into epics (E0–E6) and stories (Ex-Sy). It is self-contained: everything you need is in this file. The full design doc lives at `~/.claude/plans/i-want-to-draft-polymorphic-perlis.md` (optional deeper context; this file wins on conflict).
 
 ## How to work this file
 
@@ -232,6 +232,130 @@ Goal: production transfer engine — concurrency, retries, pause/resume, recursi
 
 ---
 
+## Epic 6 — Terminal Grid redesign (milestone M6, size M)
+
+Goal: restyle the shell to the **Terminal Grid** design reference the user supplied
+(`~/Downloads/design_handoff_ftp_client/1c-terminal-grid.html` + `README.md`), keeping every
+existing Tauri binding, store, and interaction intact. Frontend-only — no engine or IPC
+changes. Added after Epics 0–5 closed, as new scope from the user.
+
+- [x] **E6-S1 — Terminal Grid theme + regions** (M)
+  - Do: all-monospace (IBM Plex Mono) shell; `kestrel://` top bar with text actions + live pill; `local:~$ ls -la <path>` pane command headers; a Perms · Name · Size · Modified grid with glyph icons (`↰` parent, `▸` dir, `•` file) and a `..` up row; `── transfer queue ──` stream with ASCII `[████░░░░]` bars; a status console fed by real session events (new `logs` store).
+  - Accept: renders in the dev preview; every existing interaction (select, drag, navigate, transfer controls, shortcuts, dialogs) still works; frontend gate green.
+- [x] **E6-S2 — Neutral palette with a sparse green accent** (S)
+  - Do: retire the green ramp in favor of role-named neutral tokens (`--bg`/`--surface`/`--border`/`--bright`/`--text`/`--muted`/`--dim`); keep a single `--accent` green used **only** for the brand mark, the live pill, the active pane, selection, in-flight progress, the console caret, and success lines.
+  - Accept: `#4ade80` appears exactly once in the codebase (the token definition); computed colors verified in-browser; frontend gate green.
+- [x] **E6-S3 — Documentation coverage retrofit** (M)
+  - Do: audit every source file for a file header and every function for Arguments/Returns docs (the standing project convention); close all gaps.
+  - Accept: the audit reports 0 files missing headers and 0 functions missing Arguments/Returns; the diff is comment-only; full gate green.
+
+- [x] **E6-S4 — Expandable folder tree in both panes** (M)
+  - Do: let a directory expand **in place** instead of only navigating into it. The `▸` glyph becomes a disclosure control (`▾` when open); children load lazily on first expand (`local_list_dir` / `list_dir`) and render indented beneath the parent. Flatten the tree into the existing windowed virtualization so 10k+ entries still scroll. Navigating or refreshing a pane collapses the tree. **Selection must become path-keyed** — it is name-keyed today, which collides once two levels are visible.
+  - Accept: expanding/collapsing works in both panes and survives sorting; a selected child in an expanded folder transfers correctly (path-keyed, not name-keyed); double-click still navigates; `..` still goes up; store + component tests cover flatten/expand/collapse and path-keyed selection; full gate green.
+
+- [x] **E6-S5 — Interactive SSH shell (real PTY terminal)** (L)
+  - Do: replace the read-only log console with a **real interactive shell** on the connected host. Engine: open a session channel, `request_pty` + `request_shell`, split the channel and pump bytes both ways; `window_change` on resize. Engine events `ShellData`/`ShellClosed`; commands `open_shell`/`shell_write`/`shell_resize`/`close_shell`. Terminal bytes cross IPC **base64-encoded** (they are not valid UTF-8 mid-sequence). Frontend: an xterm.js terminal wired to those commands, with the session log kept as a second tab.
+  - Accept: engine integration test against the in-process server (extended with `pty_request`/`shell_request`) proves a shell opens, input reaches the server and output streams back; resize sends `window_change`; closing the session tears the shell down. Full gate green.
+
+- [x] **E6-S6 — Adjustable console/shell height** (S)
+  - Do: make the bottom console/shell region drag-resizable by its top edge, persisted across restarts, replacing the fixed 18-line height. Clamp so the file panes always keep room. The terminal must reflow on resize.
+  - Accept: dragging the grip resizes and persists; the height is clamped at both ends; keyboard (Up/Down on the focused grip) also works; full gate green.
+
+**Gate M6**: the shell matches the reference at neutral-with-sparse-accent fidelity; documentation coverage is 100% and audited; `cargo clippy`/`cargo test`/`pnpm check`/`pnpm lint`/`pnpm test` all green (84 Rust tests, 74 frontend tests).
+
+---
+
+## Epic 7 — Release readiness (milestone M7, size M)
+
+Goal: turn the deferred items recorded in **Deviations** into workable stories.
+Epics 0–6 left no unchecked story, but three kinds of work remain: things only
+the maintainer can do (secrets, certs, a real tag), things that are built but
+never exercised against reality, and known refinements. Nothing here is a
+rewrite — it is the gap between "the code exists and is tested" and "v1 shipped".
+
+**Blocked on the maintainer** (marked 🔒 — these need credentials, hardware, or a
+push, and cannot be completed from an agent environment):
+
+- [ ] 🔒 **E7-S1 — Decide the app name before signing** (S)
+  - Do: keep `sftpapp` / `io.sanjee.sftpapp` or rename. The identifier feeds the
+    bundle id, config/data dir paths, and the keychain service name, so a rename
+    after signing orphans saved secrets and installed-app config.
+  - Accept: name confirmed; if changed, `tauri.conf.json`, `package.json`, crate
+    names, and `secrets.rs::SERVICE` all updated together and the gate re-run.
+- [ ] 🔒 **E7-S2 — Install signing secrets + real update feed** (M)
+  - Do: move the generated minisign private key out of the session scratchpad to
+    safe storage and into CI as `TAURI_SIGNING_PRIVATE_KEY`; add Apple
+    (Developer ID + notarization) and Windows secrets per `docs/RELEASING.md`;
+    replace the placeholder `sanjee/sftpapp` owner in `plugins.updater.endpoints`
+    with the real repository.
+  - Accept: secrets present in Actions; the endpoint resolves to a real
+    `latest.json` URL. **A wrong endpoint fails silently** — updates simply never
+    arrive — so verify by fetching it, not by reading it.
+- [ ] 🔒 **E7-S3 — Cut a real signed release** (M) Depends: E7-S1, E7-S2
+  - Do: tag `vX.Y.Z`, let `release.yml` build the matrix, review the draft.
+  - Accept: signed `.dmg`/`.exe`/AppImage attach to a draft release with
+    `latest.json`; macOS notarization passes; **a previous install auto-updates**
+    (the one end-to-end proof the updater actually works).
+- [ ] 🔒 **E7-S4 — Execute the manual smoke checklist** (M) Depends: E7-S3
+  - Do: run all 22 items in `docs/RELEASING.md` §6 on ≥ macOS, recording results
+    in the per-OS table.
+  - Accept: table filled in; any failure filed as its own story before shipping.
+
+**Verifiable once a real host/native window is available** (built and unit-tested,
+never exercised end-to-end — see the per-story Deviations notes):
+
+- [ ] **E7-S5 — Exercise the interactive shell against a real host** (S)
+  - Do: `pnpm tauri dev`, connect, type in the shell; resize the console and
+    confirm the remote reflows (`stty size`); check a full-screen program (`htop`,
+    `vim`) renders and exits cleanly.
+  - Accept: works against a real server. Likeliest failure points, per E6-S5:
+    xterm's initial `fit()` sizing, and refit when returning to a CSS-hidden tab.
+- [ ] **E7-S6 — Exercise folder expansion against a real filesystem** (S)
+  - Do: expand/collapse in both panes; confirm sorting, a selected child
+    transferring correctly (path-keyed selection), and that a large expanded tree
+    still scrolls smoothly through the virtualizer.
+  - Accept: works in the native window in both panes.
+- [ ] **E7-S7 — Confirm the untested platform integrations** (M)
+  - Do: ssh-agent auth _success_ path (E4-S3 only tested the no-agent path);
+    keychain round-trip on macOS (E4-S5); the Docker fidelity suite (E4-S8); the
+    Linux e2e smoke (E5-S5); both drag-and-drop kinds (E3-S8); a 1 GB transfer
+    with mid-flight pause/resume and a network-kill retry (M2/M3 gates).
+  - Accept: each either passes or is filed as a defect story.
+
+**Known refinements** (deliberate deferrals, each with a Deviations note):
+
+- [ ] **E7-S8 — Resume transfers across an app restart** (M)
+  - Do: reloaded transfers restore as Paused but cannot resume — `session_id` is
+    stale because sessions get a fresh UUID on reconnect. Persist session
+    _identity_ (host/user/port) and re-associate reloaded items on connect.
+  - Accept: a queue interrupted by a restart resumes against a reconnected
+    session; covered by an engine test over the snapshot→reload→reconnect path.
+- [ ] **E7-S9 — Stream directory enumeration** (M)
+  - Do: `enqueue_directory` walks the whole tree up front, holding every request
+    in memory; stream it so a 100k-file tree stays flat in memory.
+  - Accept: enumeration is incremental; a large-tree test shows bounded memory.
+- [ ] **E7-S10 — Recurse OS folder drops** (S)
+  - Do: OS drops treat every path as a file, so dropping a folder fails its
+    transfer. Detect directories and route them through `enqueue_directory`;
+    consider position-based pane targeting while in there.
+  - Accept: dropping a folder onto the window uploads it recursively.
+- [ ] **E7-S11 — Restore type-ahead selection** (S)
+  - Do: dropped in E1-S10 over a11y trade-offs on the scroll container; bring it
+    back behind a proper listbox roving-tabindex implementation.
+  - Accept: typing jumps to the matching row; keyboard nav still passes a11y lint.
+- [ ] **E7-S12 — Measure high-RTT throughput** (S)
+  - Do: the 84 MB/s benchmark was loopback (~0 ms RTT), which cannot exercise the
+    russh-sftp read-ahead risk in the register. Re-run against a real remote or
+    under `tc netem` added latency.
+  - Accept: throughput recorded in `docs/benchmarks.md` at a realistic RTT; if it
+    falls short, file the `RawSftpSession` pipelining follow-up.
+
+**Gate M7 / v1 shipped**: a signed, notarized release is published; a prior
+install auto-updated itself; the manual checklist is green on ≥ macOS; no
+🔒 story remains open.
+
+---
+
 ## Appendix A — Architecture contracts
 
 ### Repo layout
@@ -361,9 +485,19 @@ lib/utils/{path,format}.ts
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
 
+- **E6-S6 — adjustable console height**: the console/shell region is now dragged by a 6px grip on its top edge, with the height in the ui store (`consoleHeight`, persisted to localStorage exactly like `splitRatio`) rather than the fixed `calc(18 lines)`. Clamped to **[64px, 80% of the window]** so the console can never squeeze the panes off screen; the ceiling is computed from `window.innerHeight` at set-time, falling back to a fixed value when there is no window (build/SSR). The grip is a focusable `role="separator"` with Up/Down (Shift for a bigger step) for keyboard parity with the pane splitter. xterm reflows for free — `Terminal.svelte` already observes its container, so a drag triggers `fit()` + `shell_resize` (SSH `window-change`). Verified by driving real pointer events in the browser: drag shrank 640→440, dragging past the top clamped to exactly 640 (=80% of an 800px window), and the height survived a reload (220px restored). Note: at the 80% ceiling the panes are left ~100px — deliberate (the user drives it, and it drags straight back), but a tighter cap is a one-constant change if it proves annoying. 5 ui-store tests cover the clamping and persistence.
+
+- **E6-S5 — interactive SSH shell**: the bottom region is now a **real PTY shell** on the connected host, not a transcript. Engine `shell.rs` opens a session channel, sends `pty-req` (`xterm-256color`) + `shell`, then **splits the channel** (`Channel::split`) so the pump can `wait()` on server output and write client input in one `select!` — a single `Channel` cannot be borrowed both ways. Output broadcasts as `ShellData`, teardown as `ShellClosed`; `Engine` keeps a shell registry and closes a session's shells on `disconnect`. Terminal bytes cross IPC **base64-encoded** in both directions: PTY output is routinely invalid UTF-8 mid escape-sequence and would be mangled in a JSON string. (This does not weaken the "no file bytes over IPC" invariant — that governs file transfer, which still happens entirely in Rust; this is interactive terminal I/O, which by definition must reach the webview.) Frontend renders with **xterm.js** (an emulator is required — a shell emits ANSI colour/cursor/clear sequences that raw text cannot show), wired keystrokes→`shell_write`, output→`term.write`, and `ResizeObserver`→`shell_resize` (SSH `window-change`). **The session log was kept** as a second tab (`[shell]`/`[log]`) rather than discarded — both stay mounted so switching never kills the running shell or loses scrollback. The console's 18-line height (set just before) is what makes the terminal usable. Verified by 6 engine integration tests against the in-process server, which was extended with real `pty_request`/`shell_request`/`window_change_request` handlers and a dumb echo shell: a PTY is requested at the right size, typed input reaches the server and echoes back, resize delivers `window-change`, and both `close_shell` and `disconnect` emit `ShellClosed`. **Not exercised end-to-end in the browser** (the dev preview has no Tauri runtime, so no session exists and xterm never mounts — confirmed the tabs, the not-connected hint, and the log tab all render correctly); driving a live shell needs the native window and is a manual check.
+
+- **E6-S4 — expandable folder tree**: directories now expand **in place** — the reference's `▸` folder glyph became a disclosure control (`▾` open), children load lazily on first expand and are cached (collapse keeps them; navigate/refresh drops them), and the tree is flattened into depth-tagged rows so the existing windowed virtualization is unchanged. Double-click still navigates and `..` still goes up, so nothing was traded away. Two implementation notes: (1) **selection had to move from name-keyed to path-keyed** — a flattened tree can show two entries with the same name at different depths, so the old `selected: Set<name>` would have selected both and transferred the wrong file; `select()`/`selectedEntries` and the table's props now use `entry.path`. (2) the disclosure hit area is the folder's **whole label** (glyph + name, i.e. the entire `.col-name` cell — the `1fr` column, not the 10px arrow), matched via the click target rather than a nested `<button>`, because the row is itself a `<button>` and nesting interactive elements is invalid HTML. A plain click on a directory's label selects _and_ toggles it; two guards keep that from fighting other gestures — modifier clicks select only (so ctrl/shift range-select does not flap folders open and shut), and `event.detail > 1` skips the toggle on the second click of a double-click so navigate wins cleanly rather than expanding then navigating. Clicking a non-label column (perms/size/modified) selects without expanding, and ArrowRight/ArrowLeft on a focused directory row give the same control from the keyboard. **Live expansion against a real filesystem was not exercised in-browser** (the dev preview has no Tauri runtime to list directories) — it is covered by store + component tests (flatten/indent/expand/collapse/sort-follows-children/loading-state, and same-named entries at different depths), with the end-to-end check left to the manual sweep.
+
+- **E6-S3 — doc-coverage audit found bugs in the audit, not just the docs**: the retrofit closed **171** missing Arguments/Returns gaps across 34 files (file headers were already 76/76). Work was fanned out to 4 parallel subagents over disjoint areas (engine/transfer, engine/fs+session, src-tauri, frontend), with `cargo` held centrally to avoid target-dir lock contention; the combined diff is comment-only (verified: every added line is `///`/JSDoc, zero deletions). **Four tooling defects were caught during the pass, three in the audit script itself**: (1) the first version assumed bash word-splitting and reported every file as header-less under zsh — false; (2) `signature()` scanned from the first `(` on the line, so `pub(crate) fn foo(&self)` parsed as `params="crate"` — fabricating a phantom argument _and_ silently never checking `Returns:` on any `pub(crate)` fn repo-wide (fixing it surfaced a real gap in `ChannelPool::new`); (3) the completion watcher treated an empty script output as "clean", so a mid-edit `TypeError` read as success; (4) a grep in one subagent brief could never match the audit's output format and would have reported "nothing to do" on 44 real findings. A subagent correctly **refused** to add `Arguments:` lines to argument-less fns to force the metric green, and reported the parser bug instead. `RemoteFs` trait impls keep their impl-specific note plus concrete per-impl Arguments/Returns (rather than restating the trait), since the trait declares the contract.
+- **E6-S1/S2 — redesign scope and fidelity calls**: the reference is a static HTML prototype; it was rebuilt in Svelte and wired to the real commands rather than dropped in. Three deliberate divergences: (1) the reference's static `ls -la <path>` line became an **inline editable path field** (Enter navigates, Cmd/Ctrl+L focuses) and up-navigation moved to a synthetic `..` row, so clickable-breadcrumb navigation was replaced rather than lost; (2) the reference has no status console data model, so a `logs` store was added and fed from real session events (connect, `cd`, listing results, reconnects, errors) instead of the prototype's hardcoded lines; (3) per the user's follow-up the palette went **neutral with green as a sparse accent** — so directories separate from files by **brightness, not hue** (dirs `--bright`, files `--muted`), diverging from the reference's green-directory treatment. The README's second "Classic Pro" theme and the runtime theme switcher are **not** implemented — only the Terminal Grid look was requested. Dialogs adopted the theme automatically via the token cascade (no per-dialog edits). Verified in a dev-server preview (port 1420 was occupied by an unrelated app, so 5321 was used); the native Tauri window is still not observable from this environment.
 - **E5-S6 — manual checklist run**: added a 22-item, per-OS pre-release smoke checklist (§6 of `docs/RELEASING.md`) covering all four auth methods, TOFU + changed-key, 10k-dir scroll, 1 GB up/down with pause/resume, network-kill retry, recursive both ways, every file op, both DnD kinds, keychain presence, settings persistence, local auto-refresh, shortcuts, and auto-update. The doc exists and is Prettier-clean; the acceptance's "run it once and record results" is a **manual dev-machine pass** that can't be performed from this environment (no native window / OS keychain / DnD / installed prior version here) — it's left for the maintainer before the first release, with the table ready to fill in.
 
-**Gate M5 / v1**: the release machinery is in place — `release.yml` builds the signed matrix into a draft release on `v*` tags, the updater is configured with a real pubkey (private key handling documented), and the manual checklist is ready. What remains before an actual v1 tag is inherently outside this environment: supply the signing secrets, set the real repo owner in the updater endpoint, run a signed bundle build + notarization, and execute the manual checklist on ≥ macOS (auto-update from a prior install being the key end-to-end proof). All in-repo, automatable work for Epics 0–5 is complete: engine 41 lib + integration tests, src-tauri 19 unit tests, frontend 74 tests, plus opt-in docker fidelity + non-blocking Linux e2e suites; `cargo clippy`/`cargo test`/`pnpm check`/`pnpm lint`/`pnpm test` all green. added a WebdriverIO + tauri-driver harness (`e2e/wdio.conf.ts` + `e2e/specs/smoke.e2e.ts`, `pnpm test:e2e`) and a **non-blocking** Linux CI job (`.github/workflows/e2e.yml`, `continue-on-error: true`, Xvfb, `atmoz/sftp` service, `cargo install tauri-driver`): launch → connect (password) → accept TOFU → select the first remote file → Download → assert a transfer row reaches `data-state="done"`. Added stable selectors to the app for it (`button.row[data-row-kind]` on file rows; transfer rows already carry `data-state`). **Cannot be run from this environment** (tauri-driver is Linux/Windows-only — no macOS support — and needs a built binary + Docker), so it's verified best-effort: workflow passes `actionlint`, the wdio deps install cleanly, and the frontend gate stays green; the actual launch-and-download run is the Linux CI job / a local Linux run. Side effect: pulling `@wdio/*` brought `@types/node` into the tree, which typed `process` in `vite.config.js` and made an existing `@ts-expect-error` unused — removed it and pinned `@types/node` explicitly. `e2e/` is excluded from ESLint (mocha/wdio globals) but still Prettier-formatted.
+**Gate M5 / v1**: the release machinery is in place — `release.yml` builds the signed matrix into a draft release on `v*` tags, the updater is configured with a real pubkey (private key handling documented), and the manual checklist is ready. What remains before an actual v1 tag is inherently outside this environment: supply the signing secrets, set the real repo owner in the updater endpoint, run a signed bundle build + notarization, and execute the manual checklist on ≥ macOS (auto-update from a prior install being the key end-to-end proof). All in-repo, automatable work for Epics 0–5 is complete: engine 41 lib + integration tests, src-tauri 19 unit tests, frontend 74 tests, plus opt-in docker fidelity + non-blocking Linux e2e suites; `cargo clippy`/`cargo test`/`pnpm check`/`pnpm lint`/`pnpm test` all green.
+
+- **E5-S5 — e2e smoke, verification boundary**: added a WebdriverIO + tauri-driver harness (`e2e/wdio.conf.ts` + `e2e/specs/smoke.e2e.ts`, `pnpm test:e2e`) and a **non-blocking** Linux CI job (`.github/workflows/e2e.yml`, `continue-on-error: true`, Xvfb, `atmoz/sftp` service, `cargo install tauri-driver`): launch → connect (password) → accept TOFU → select the first remote file → Download → assert a transfer row reaches `data-state="done"`. Added stable selectors to the app for it (`button.row[data-row-kind]` on file rows; transfer rows already carry `data-state`). **Cannot be run from this environment** (tauri-driver is Linux/Windows-only — no macOS support — and needs a built binary + Docker), so it's verified best-effort: workflow passes `actionlint`, the wdio deps install cleanly, and the frontend gate stays green; the actual launch-and-download run is the Linux CI job / a local Linux run. Side effect: pulling `@wdio/*` brought `@types/node` into the tree, which typed `process` in `vite.config.js` and made an existing `@ts-expect-error` unused — removed it and pinned `@types/node` explicitly. `e2e/` is excluded from ESLint (mocha/wdio globals) but still Prettier-formatted.
 
 - **E5-S4 — release pipeline verification**: `.github/workflows/release.yml` builds the `[macos-14, ubuntu-22.04, windows-latest]` matrix on `v*` tags via `tauri-apps/tauri-action@v0` and publishes a **draft** GitHub Release with the signed bundles + `latest.json`. macOS builds universal (`--target universal-apple-darwin`, both rust targets added); all updater/Apple/Windows signing is wired through repo **secrets** (env). Validated with `actionlint` (clean) + YAML parse. **Not exercised end-to-end here**: an actual tagged run needs the user's signing secrets and a push to GitHub (neither available in this sandbox), so a live matrix build + draft-release creation is a maintainer/CI check. The `<owner>/<repo>` in the updater endpoint (E5-S3) must match the real repository before the first tag.
 - **E5-S3 — updater signing key + verification boundary**: wired `tauri-plugin-updater` 2.x (desktop-only, registered under `#[cfg(desktop)]`), set `bundle.createUpdaterArtifacts: true`, and added `plugins.updater` (endpoint = GitHub Releases `latest.json`, plus a real minisign **public** key) to `tauri.conf.json`. The endpoint owner/repo (`sanjee/sftpapp`) is a placeholder to update at first release. A minisign keypair was generated with `pnpm tauri signer generate`; **the public key is committed, the private key is NOT** — it was written to the session scratchpad (`sftpapp-updater.key`) and must be moved to a safe location / CI secret by the maintainer (documented in `docs/RELEASING.md`, which also covers macOS notarization + Windows signing env). Validation done here: `cargo build -p sftpapp` and `pnpm tauri build --debug --no-bundle` both succeed (frontend build + `generate_context!` config parse + full compile with the plugin). **Not done here** (needs the user's certs + a long signed bundle build + a tag push, none available in this environment): a full signed `.dmg`/`.exe` bundle, notarization, and an end-to-end update from a prior install — those are release-time / CI checks. No unit tests apply (pure configuration).

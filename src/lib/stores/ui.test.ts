@@ -35,3 +35,32 @@ describe("ui store", () => {
     expect(ui.transferPanelExpanded).toBe(false);
   });
 });
+
+describe("ui store console height", () => {
+  it("defaults to 18 lines' worth when nothing is stored", () => {
+    expect(ui.consoleHeight).toBeGreaterThan(0);
+  });
+
+  it("persists the height to localStorage", () => {
+    ui.consoleHeight = 240;
+    expect(ui.consoleHeight).toBe(240);
+    expect(window.localStorage.getItem("sftpapp.consoleHeight")).toBe("240");
+  });
+
+  it("clamps below the minimum", () => {
+    ui.consoleHeight = 5;
+    expect(ui.consoleHeight).toBe(64);
+  });
+
+  it("never lets the console exceed 80% of the window", () => {
+    // jsdom's default window is 768px tall → ceiling 614.4px.
+    ui.consoleHeight = 100_000;
+    expect(ui.consoleHeight).toBeLessThanOrEqual(window.innerHeight * 0.8);
+    expect(ui.consoleHeight).toBeGreaterThan(64);
+  });
+
+  it("falls back to the default for non-finite input", () => {
+    ui.consoleHeight = Number.NaN;
+    expect(ui.consoleHeight).toBe(360);
+  });
+});

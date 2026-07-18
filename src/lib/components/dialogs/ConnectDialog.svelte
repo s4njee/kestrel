@@ -72,7 +72,12 @@
     if (typeof selected === "string") keyPath = selected;
   }
 
-  /** Build the connect request from the current form state. */
+  /**
+   * Build the connect request from the current form state.
+   *
+   * @returns the request, with an auth payload shaped to the selected method and
+   *   host/username trimmed.
+   */
   function buildRequest(): ConnectRequest {
     const auth: ConnectRequest["auth"] =
       method === "password"
@@ -85,14 +90,24 @@
     return { host: host.trim(), port, username: username.trim(), auth };
   }
 
-  /** The secret to persist for the current method, or undefined if none. */
+  /**
+   * The secret to persist for the current method, or undefined if none.
+   *
+   * @returns the password for password auth, the passphrase for key auth, or
+   *   undefined when empty or when the method needs no secret.
+   */
   function secretValue(): string | undefined {
     if (method === "password") return password || undefined;
     if (method === "key") return passphrase || undefined;
     return undefined;
   }
 
-  /** Build a Bookmark from the current form (id preserved when editing). */
+  /**
+   * Build a Bookmark from the current form (id preserved when editing).
+   *
+   * @returns the bookmark, named after the host when no name was given and reusing
+   *   the seed's id and directories when editing an existing entry.
+   */
   function formBookmark(): Bookmark {
     return {
       id: seed?.id ?? NIL_UUID,
@@ -120,7 +135,11 @@
     }
   }
 
-  /** Submit the form: connect, optionally save a bookmark, report the result. */
+  /**
+   * Submit the form: connect, optionally save a bookmark, report the result.
+   *
+   * @param event - the form submit event; its default is prevented.
+   */
   async function submit(event: Event): Promise<void> {
     event.preventDefault();
     if (!canSubmit) return;

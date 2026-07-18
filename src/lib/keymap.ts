@@ -17,7 +17,12 @@ export interface KeyLike {
   target?: EventTarget | null;
 }
 
-/** Whether the event originates from an editable field (don't hijack typing). */
+/**
+ * Whether the event originates from an editable field (don't hijack typing).
+ *
+ * @param target - the event target to inspect; may be null/undefined.
+ * @returns true if the target is an input, textarea, or contenteditable element.
+ */
 function isEditable(target: EventTarget | null | undefined): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);

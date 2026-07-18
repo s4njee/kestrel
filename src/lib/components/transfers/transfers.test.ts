@@ -65,19 +65,19 @@ describe("TransferRow", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
-  it("shows Failed for a failed transfer and no cancel button", () => {
+  it("shows failed for a failed transfer and no cancel button", () => {
     render(TransferRow, {
       props: { transfer: transfer({ state: "failed", error: "denied" }), onCancel: vi.fn() },
     });
-    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("failed")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
-  it("renders a done transfer without a cancel button", () => {
-    render(TransferRow, {
+  it("renders a done transfer at 100% without a cancel button", () => {
+    const { container } = render(TransferRow, {
       props: { transfer: transfer({ state: "done", bytes: 1024 }), onCancel: vi.fn() },
     });
-    expect(screen.getByText("done")).toBeInTheDocument();
+    expect(container.textContent).toContain("100%");
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 

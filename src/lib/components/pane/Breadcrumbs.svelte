@@ -1,18 +1,18 @@
 <!--
-  Breadcrumbs.svelte — Path navigation for a pane.
+  Breadcrumbs.svelte — Terminal command header for a pane.
 
-  Shows clickable path segments plus an editable address bar. Clicking a segment
-  or pressing Enter in the address bar navigates. The input carries a stable id
-  (`path-input-<kind>`) so the shell can focus it for the Cmd/Ctrl+L shortcut.
+  Renders a shell-style prompt line — `local:~$ ls -la <path>` — where the path
+  is an inline editable field: pressing Enter navigates, Escape reverts. The
+  field keeps a stable id (`path-input-<kind>`) so the shell can focus it for the
+  Cmd/Ctrl+L shortcut. Up-navigation is via the `..` row in the file grid.
 
   Props:
   - path: string                 — current directory path.
-  - kind: PaneKind               — identifies the pane (for the input id).
+  - kind: PaneKind               — identifies the pane (label + input id).
   - onNavigate: (path) => void   — called with the target path.
 -->
 <script lang="ts">
   import type { PaneKind } from "$lib/types";
-  import { pathSegments } from "$lib/utils/path";
 
   interface Props {
     path: string;
@@ -26,8 +26,6 @@
   // can still type into it (reassignments hold until the next path change).
   let draft = $derived(path);
 
-  let segments = $derived(pathSegments(path));
-
   /**
    * Handle path-field keys: Enter navigates to the typed path, Escape reverts.
    *
@@ -39,15 +37,12 @@
   }
 </script>
 
-<div class="breadcrumbs">
-  <nav class="crumbs" aria-label="path">
-    {#each segments as seg (seg.path)}
-      <button class="crumb" onclick={() => onNavigate(seg.path)}>{seg.label}</button>
-    {/each}
-  </nav>
+<div class="cmd">
+  <span class="prompt">{kind}:~$</span>
+  <span class="verb">ls -la</span>
   <input
     id={`path-input-${kind}`}
-    class="address"
+    class="path"
     bind:value={draft}
     onkeydown={onKeyDown}
     aria-label={`${kind} path`}
@@ -57,43 +52,35 @@
 </div>
 
 <style>
-  .breadcrumbs {
+  .cmd {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border, #d0d0d0);
-    background: var(--surface-2, #f2f2f2);
-  }
-  .crumbs {
-    display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 1px;
-    font-size: 0.78rem;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--grid);
+    font-size: 12px;
+    min-width: 0;
   }
-  .crumb {
+  .prompt {
+    color: var(--dim);
+    flex: 0 0 auto;
+  }
+  .verb {
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+  .path {
+    flex: 1 1 auto;
+    min-width: 0;
     background: none;
     border: none;
-    padding: 1px 4px;
-    border-radius: 4px;
-    cursor: pointer;
-    color: var(--accent, #396cd8);
+    outline: none;
+    padding: 1px 2px;
+    color: var(--bright);
+    font-size: 12px;
   }
-  .crumb:hover {
-    background: var(--surface, #fff);
-  }
-  .crumb:not(:last-child)::after {
-    content: "›";
-    margin-left: 4px;
-    color: var(--muted, #999);
-  }
-  .address {
-    font-size: 0.78rem;
-    padding: 3px 6px;
-    border: 1px solid var(--border, #c4c4c4);
-    border-radius: 5px;
-    background: var(--surface, #fff);
-    color: inherit;
+  .path:focus {
+    border-bottom: 1px solid var(--accent);
   }
 </style>

@@ -1,91 +1,117 @@
 <!--
-  Toolbar.svelte — Top application toolbar.
+  Toolbar.svelte — Terminal-grid top bar.
 
-  E0-S4 skeleton: renders the app name and placeholder action buttons (Connect,
-  Upload, Download). The Connect button invokes an optional callback so a later
-  story can open the connect dialog (E1-S9); transfer actions are disabled until
-  a session exists (E2-S4). No IPC here.
+  The single command bar at the top of the shell: the `kestrel://` scheme, the
+  active host, a session-detail chip, and the text action links
+  ([connect]/[disconnect] [↑up] [↓down] [refresh] [queue] [settings]) plus a
+  live-connection pill. Actions invoke optional callbacks; transfer actions are
+  disabled until a session exists. No IPC here.
 
   Props:
   - connected: boolean          — whether a remote session is active.
-  - onConnect?: () => void      — invoked when Connect/Disconnect is clicked.
-  - onSettings?: () => void     — invoked when Settings is clicked.
+  - host?: string               — active host label (e.g. "user@host:22").
+  - meta?: string               — session-detail chip (e.g. "sftp · key").
+  - canUpload/canDownload?: boolean — enable the transfer links.
+  - onConnect/onUpload/onDownload/onRefresh/onQueue/onSettings?: () => void
 -->
 <script lang="ts">
   interface Props {
     connected: boolean;
+    host?: string;
+    meta?: string;
     canUpload?: boolean;
     canDownload?: boolean;
     onConnect?: () => void;
     onUpload?: () => void;
     onDownload?: () => void;
+    onRefresh?: () => void;
+    onQueue?: () => void;
     onSettings?: () => void;
   }
 
   let {
     connected,
+    host = "not connected",
+    meta = "sftp",
     canUpload = false,
     canDownload = false,
     onConnect,
     onUpload,
     onDownload,
+    onRefresh,
+    onQueue,
     onSettings,
   }: Props = $props();
 </script>
 
-<header class="toolbar">
-  <span class="brand">sftpapp</span>
+<header class="topbar">
+  <span class="scheme">kestrel://</span>
+  <span class="who">{host}</span>
+  <span class="chip">[{meta}]</span>
 
-  <div class="actions">
-    <button class="primary" onclick={() => onConnect?.()}>
-      {connected ? "Disconnect" : "Connect…"}
+  <span class="tools">
+    <button class="link" onclick={() => onConnect?.()}>
+      [{connected ? "disconnect" : "connect"}]
     </button>
-    <button
-      disabled={!canUpload}
-      title="Upload selected local files to the remote folder (Cmd/Ctrl+U)"
-      onclick={() => onUpload?.()}>Upload ↑</button
-    >
-    <button
-      disabled={!canDownload}
-      title="Download selected remote files to the local folder (Cmd/Ctrl+D)"
-      onclick={() => onDownload?.()}>Download ↓</button
-    >
-    <button title="Settings" onclick={() => onSettings?.()}>Settings</button>
-  </div>
+    <button class="link" disabled={!canUpload} onclick={() => onUpload?.()}>[↑up]</button>
+    <button class="link" disabled={!canDownload} onclick={() => onDownload?.()}>[↓down]</button>
+    <button class="link" onclick={() => onRefresh?.()}>[refresh]</button>
+    <button class="link" onclick={() => onQueue?.()}>[queue]</button>
+    <button class="link" onclick={() => onSettings?.()}>[settings]</button>
+    <span class="live" class:on={connected}>● {connected ? "live" : "idle"}</span>
+  </span>
 </header>
 
 <style>
-  .toolbar {
+  .topbar {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 6px 12px;
-    border-bottom: 1px solid var(--border, #d0d0d0);
-    background: var(--surface-2, #f2f2f2);
+    gap: 14px;
+    padding: 7px 14px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
   }
-  .brand {
-    font-weight: 700;
-    letter-spacing: 0.02em;
+  .scheme {
+    font-weight: 600;
+    color: var(--accent);
   }
-  .actions {
+  .who {
+    color: var(--bright);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chip {
+    color: var(--dim);
+  }
+  .tools {
+    margin-left: auto;
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 12px;
   }
-  button {
-    padding: 4px 12px;
-    font-size: 0.8rem;
-    border-radius: 6px;
-    border: 1px solid var(--border, #c4c4c4);
-    background: var(--surface, #ffffff);
+  .link {
+    background: none;
+    border: none;
+    padding: 0;
     cursor: pointer;
+    color: var(--text);
+    font-size: 12px;
   }
-  button:disabled {
-    opacity: 0.5;
+  .link:hover:not(:disabled) {
+    color: var(--accent);
+  }
+  .link:disabled {
+    color: var(--dim);
     cursor: not-allowed;
   }
-  button.primary {
-    background: var(--accent, #396cd8);
-    border-color: var(--accent, #396cd8);
-    color: #ffffff;
+  .live {
+    color: var(--dim);
+    letter-spacing: 0.02em;
+  }
+  .live.on {
+    color: var(--accent);
   }
 </style>
