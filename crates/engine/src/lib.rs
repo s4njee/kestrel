@@ -9,6 +9,7 @@
 //! Module map (see tasks.md Appendix A). Most modules are stubs at E0-S2 and
 //! are filled in across Epics 1–4:
 //! - [`error`]    — error taxonomy + transient/fatal classification (E1-S1)
+//! - [`exec`]     — one-shot remote commands (optional accelerator; E8-S1)
 //! - [`events`]   — engine event enum broadcast to the shell
 //! - [`fs`]       — the `RemoteFs` trait plus SFTP and local implementations
 //! - [`session`]  — SSH session manager, auth ladder, channel pool
@@ -19,6 +20,7 @@
 
 pub mod auth;
 pub mod error;
+pub mod exec;
 pub mod events;
 pub mod fs;
 pub mod hostkey;
@@ -30,6 +32,7 @@ pub mod watcher;
 
 pub use auth::{AuthMethod, ConnectParams, Secret};
 pub use error::{EngineError, ErrorClass, Result};
+pub use exec::{ExecOutput, DEFAULT_EXEC_TIMEOUT};
 pub use events::{
     AuthPromptField, EngineEvent, FileInfo, ProgressSample, PromptReply, Prompts, SessionId,
 };

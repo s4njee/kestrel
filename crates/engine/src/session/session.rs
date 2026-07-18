@@ -363,6 +363,27 @@ impl Session {
 
     /// Whether the underlying SSH connection has closed.
     ///
+    /// Run a single command on this session (a quiet side channel).
+    ///
+    /// Opens its own channel, so it never touches the user's interactive shell.
+    /// **Treat a failure as "no accelerator available" and fall back to the
+    /// pure-SFTP path** — restricted servers legitimately refuse `exec`.
+    ///
+    /// Arguments: `command` — the command line to run; `limit` — how long to
+    /// wait before abandoning it (see [`crate::exec::DEFAULT_EXEC_TIMEOUT`]).
+    /// Returns: the captured [`ExecOutput`] (check
+    /// [`ok`](crate::exec::ExecOutput::ok) before trusting it), or an error if
+    /// the channel could not be opened or the command timed out.
+    pub async fn exec(
+        &self,
+        command: &str,
+        limit: std::time::Duration,
+    ) -> Result<crate::exec::ExecOutput> {
+        let handle = self.inner.read().await.handle.clone();
+        let channel = handle.channel_open_session().await.map_err(map_russh)?;
+        crate::exec::run(channel, command, limit).await
+    }
+
     /// Open a session channel for an interactive shell.
     ///
     /// The PTY and shell requests are made by `shell::open`; this only hands out

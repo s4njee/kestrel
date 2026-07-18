@@ -47,6 +47,12 @@ pub struct ShellObserved {
     pub shell_started: bool,
 }
 
+/// The most recent command the server received via `exec`.
+#[derive(Default)]
+pub struct ExecObserved {
+    pub last: Option<String>,
+}
+
 /// A running test server. Dropping it aborts the accept loop and removes the
 /// tempdir root.
 pub struct TestServer {
@@ -56,6 +62,7 @@ pub struct TestServer {
     pub host_key_openssh: String,
     root: tempfile::TempDir,
     shell: Arc<Mutex<ShellObserved>>,
+    last_exec: Arc<Mutex<Option<String>>>,
     shutdown: CancellationToken,
     _task: tokio::task::JoinHandle<()>,
 }
@@ -64,6 +71,11 @@ impl TestServer {
     /// The server's filesystem root; populate it before connecting.
     pub fn root(&self) -> &Path {
         self.root.path()
+    }
+
+    /// The last command the server received via `exec`, if any.
+    pub async fn last_exec(&self) -> Option<String> {
+        self.last_exec.lock().await.clone()
     }
 
     /// What the server saw of the client's PTY/shell requests.
@@ -139,12 +151,14 @@ async fn start_server(
     let port = listener.local_addr().unwrap().port();
 
     let shell_state = Arc::new(Mutex::new(ShellObserved::default()));
+    let exec_state: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let mut server = ServerImpl {
         user: user.to_string(),
         password: password.to_string(),
         ki_answer,
         root: root_path,
         shell: shell_state.clone(),
+        last_exec: exec_state.clone(),
     };
 
     // Manual accept loop: each connection selects on a shutdown token so that
@@ -180,6 +194,7 @@ async fn start_server(
         host_key_openssh,
         root,
         shell: shell_state,
+        last_exec: exec_state,
         shutdown,
         _task: task,
     }
@@ -192,6 +207,7 @@ struct ServerImpl {
     ki_answer: Option<String>,
     root: PathBuf,
     shell: Arc<Mutex<ShellObserved>>,
+    last_exec: Arc<Mutex<Option<String>>>,
 }
 
 impl Server for ServerImpl {
@@ -205,6 +221,7 @@ impl Server for ServerImpl {
             root: self.root.clone(),
             channels: Arc::new(Mutex::new(HashMap::new())),
             shell: self.shell.clone(),
+            last_exec: self.last_exec.clone(),
             shell_channels: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
@@ -217,6 +234,7 @@ struct SessionHandler {
     root: PathBuf,
     channels: Arc<Mutex<HashMap<ChannelId, Channel<Msg>>>>,
     shell: Arc<Mutex<ShellObserved>>,
+    last_exec: Arc<Mutex<Option<String>>>,
     /// Channels that have become interactive shells.
     shell_channels: Arc<Mutex<std::collections::HashSet<ChannelId>>>,
 }
@@ -283,6 +301,55 @@ impl Handler for SessionHandler {
         Ok(())
     }
 
+
+
+    /// A tiny command runner so exec tests exercise a real SSH `exec` request.
+    ///
+    /// Supports just what the engine's probes need:
+    /// - `echo <text>` → text on stdout, exit 0
+    /// - `fail <text>` → text on stderr, exit 3
+    /// - `sleep-forever` → never replies (drives the timeout path)
+    /// - anything else → "command not found" on stderr, exit 127 (what a
+    ///   restricted server looks like to a caller)
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let command = String::from_utf8_lossy(data).to_string();
+        *self.last_exec.lock().await = Some(command.clone());
+        session.channel_success(channel)?;
+
+        if command == "sleep-forever" {
+            // Deliberately send nothing and never close.
+            return Ok(());
+        }
+
+        let (stdout, stderr, status) = if let Some(rest) = command.strip_prefix("echo ") {
+            (format!("{rest}\n"), String::new(), 0u32)
+        } else if let Some(rest) = command.strip_prefix("fail ") {
+            (String::new(), format!("{rest}\n"), 3u32)
+        } else {
+            (
+                String::new(),
+                format!("sh: {command}: command not found\n"),
+                127u32,
+            )
+        };
+
+        if !stdout.is_empty() {
+            session.data(channel, stdout.into_bytes())?;
+        }
+        if !stderr.is_empty() {
+            // Extended data code 1 = stderr.
+            session.extended_data(channel, 1, stderr.into_bytes())?;
+        }
+        session.exit_status_request(channel, status)?;
+        session.eof(channel)?;
+        session.close(channel)?;
+        Ok(())
+    }
 
     #[allow(clippy::too_many_arguments)]
     async fn pty_request(

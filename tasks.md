@@ -364,7 +364,7 @@ assets ordinary SFTP clients don't: a **live PTY/exec channel** into the host
 compound one of those with the browser. Unordered backlog — pick by value; the
 only hard dependency is E8-S1, the shared enabler.
 
-- [ ] **E8-S1 — One-shot remote exec primitive** (S)
+- [x] **E8-S1 — One-shot remote exec primitive** (S)
   - Do: engine helper to open a session channel, run a single command
     (`channel.exec`), capture stdout/stderr/exit status with a timeout, and
     close. No PTY, not the user's shell — a quiet side channel. Expose as
@@ -591,6 +591,8 @@ lib/utils/{path,format}.ts
 ## Deviations
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E8-S1 — one-shot remote exec**: `crates/engine/src/exec.rs` opens its **own** session channel per command (SSH multiplexes channels, so this never touches the user's interactive shell from E6-S5 — nothing is typed into their terminal, scrollback is undisturbed, and it works with no shell open). No PTY is requested, so output is not mangled by terminal processing. `Session::exec(cmd, timeout) -> ExecOutput` captures stdout, stderr (extended data code 1), and the exit status. Two deliberate API choices for the fallback contract: a **nonzero exit is `Ok(...)`, not `Err`** — the round-trip succeeded, and it is `ExecOutput::ok()` that reports command failure, so callers can distinguish "server refused/unreachable" from "tool absent"; and **a missing exit status counts as failure**, so a command killed by a signal is never mistaken for success. The drain loop keeps reading past `Eof` because servers commonly send the exit status after it, and breaks on `Close`. Timeout defaults to 30s (`DEFAULT_EXEC_TIMEOUT`) since every intended consumer is a fast probe. No IPC command was added — this is a backend-only accelerator, exactly as scoped. The test server gained a real `exec_request` handler (echo/fail/sleep-forever/not-found) so 5 integration tests cover stdout+exit 0, stderr+exit 3, exit 127 (the restricted-server shape a `which tar` probe hits), the timeout path, and — proving the isolation claim — that running an exec emits **no** shell output and leaves a live shell still accepting input.
 
 - **E7-S8 — resume across restart**: closes the gap left by E3-S7. The snapshot now records the session's **stable identity** (`SessionOrigin` = host/port/username) alongside the ephemeral `session_id`, and `Engine::connect` re-attaches every paused, snapshot-restored transfer whose origin matches the newly connected session. `TransferItem::session_id` became interior-mutable (`Mutex<SessionId>` behind an accessor) since items live in an `Arc` and must be re-pointed once; the blast radius was a single reader in `worker.rs`. `PersistedTransfer::origin` is `#[serde(default)] Option<_>`, so **snapshots written by older builds still load** (they simply cannot re-attach, which is the pre-existing behavior). Matching is exact on host+port+user, so a queue belonging to another server is never hijacked by whichever session connects first — covered by a dedicated negative test. Verified end-to-end against the in-process server: enqueue → snapshot → fresh engine → reload as Paused (still holding the stale id) → reconnect (asserted to get a different id) → re-attached → `resume` → Done with the bytes on disk.
 
