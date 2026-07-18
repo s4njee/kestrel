@@ -19,7 +19,9 @@ use crate::fs::local::LocalFs;
 use crate::fs::sftp::SftpFs;
 use crate::fs::RemoteFs;
 use crate::session::Session;
+use crate::tarstream;
 use crate::transfer::io::{copy_file, CopyOptions};
+use crate::transfer::TransferKind;
 use crate::transfer::retry::{retry, RetryPolicy};
 use crate::transfer::{
     ConflictResolution, Direction, QueueShared, TransferId, TransferItem, TransferState,
@@ -279,6 +281,46 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
         return;
     };
 
+    // A tar-streamed directory is one archive, not a file: per-file conflict
+    // resolution does not apply (the remote/local `tar` merges into the
+    // destination), so branch before that machinery. A failure here is NOT
+    // retried into the per-file path — the caller chose tar at enqueue time, and
+    // silently switching strategies mid-flight would make progress and conflict
+    // behavior unpredictable; the transfer fails visibly instead.
+    if item.kind == TransferKind::DirectoryTar {
+        let token = item.token();
+        let result = match item.direction {
+            Direction::Download => {
+                tarstream::download_dir(
+                    &session,
+                    &item.src,
+                    std::path::Path::new(&item.effective_dest()),
+                    &item.bytes_done,
+                    &token,
+                )
+                .await
+            }
+            Direction::Upload => {
+                tarstream::upload_dir(
+                    &session,
+                    std::path::Path::new(&item.src),
+                    &item.effective_dest(),
+                    &item.bytes_done,
+                    &token,
+                )
+                .await
+            }
+        };
+        match result {
+            Ok(()) => shared.emit_state(id, TransferState::Done, None),
+            Err(EngineError::Canceled) => {
+                shared.emit_state(id, TransferState::Canceled, None)
+            }
+            Err(e) => shared.emit_state(id, TransferState::Failed, Some(e.to_string())),
+        }
+        return;
+    }
+
     // Resolve any destination-exists conflict before transferring.
     let resolution = match resolve_conflict(&shared, &item, &session).await {
         Some(r) => r,
@@ -451,6 +493,7 @@ mod tests {
         let id = Uuid::new_v4();
         let item = Arc::new(TransferItem {
             id,
+            kind: TransferKind::File,
             session_id: Mutex::new(Uuid::new_v4()),
             origin: Mutex::new(None),
             direction: Direction::Download,

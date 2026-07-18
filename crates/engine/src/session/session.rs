@@ -363,6 +363,17 @@ impl Session {
 
     /// Whether the underlying SSH connection has closed.
     ///
+    /// Open a bare session channel for a streaming command (used by tar
+    /// acceleration, which needs the channel itself rather than collected output).
+    ///
+    /// Returns: the opened channel, or an error if the connection is gone.
+    pub(crate) async fn open_exec_channel(
+        &self,
+    ) -> Result<russh::Channel<russh::client::Msg>> {
+        let handle = self.inner.read().await.handle.clone();
+        handle.channel_open_session().await.map_err(map_russh)
+    }
+
     /// Run a single command on this session (a quiet side channel).
     ///
     /// Opens its own channel, so it never touches the user's interactive shell.

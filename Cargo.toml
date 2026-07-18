@@ -44,6 +44,9 @@ sha2 = "0.10"
 sha1 = "0.10"
 hmac = "0.12"
 
+# Archive streaming for tar-accelerated directory transfers (E8-S2).
+tar = "0.4"
+
 # Credentials and filesystem watching
 keyring = "4"
 notify = "8"

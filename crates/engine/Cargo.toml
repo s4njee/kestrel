@@ -36,6 +36,9 @@ tracing = { workspace = true }
 zeroize = { workspace = true }
 rand = { workspace = true }
 notify = { workspace = true }
+tar = { workspace = true }
+# Staging archives so memory stays bounded (see tarstream.rs).
+tempfile = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

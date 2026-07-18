@@ -185,9 +185,20 @@ pub struct TransferRequest {
     pub size: u64,
 }
 
+/// What a queued item actually moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferKind {
+    /// A single file, copied chunk-by-chunk over SFTP.
+    File,
+    /// A whole directory, streamed as one tar archive (E8-S2).
+    DirectoryTar,
+}
+
 /// One queued/active transfer.
 pub struct TransferItem {
     pub id: TransferId,
+    /// Whether this moves one file or a whole directory via tar.
+    pub kind: TransferKind,
     /// The session this runs on. Interior-mutable because a transfer restored
     /// from a snapshot is re-pointed at the freshly-connected session.
     session_id: Mutex<SessionId>,
@@ -471,6 +482,7 @@ impl TransferQueue {
             let id = Uuid::new_v4();
             let item = Arc::new(TransferItem {
                 id,
+                kind: TransferKind::File,
                 session_id: Mutex::new(p.session_id),
                 origin: Mutex::new(p.origin),
                 direction: p.direction,
@@ -503,6 +515,7 @@ impl TransferQueue {
             let id = Uuid::new_v4();
             let item = Arc::new(TransferItem {
                 id,
+                kind: TransferKind::File,
                 session_id: Mutex::new(req.session_id),
                 origin: Mutex::new(None),
                 direction: req.direction,
@@ -525,6 +538,45 @@ impl TransferQueue {
         }
         self.shared.notify.notify_one();
         ids
+    }
+
+    /// Enqueue a whole directory as a single tar-streamed transfer.
+    ///
+    /// Arguments: `session_id` — the owning session; `direction` — upload or
+    /// download; `src_dir` — the directory to move; `dest_parent` — the
+    /// directory it lands under.
+    /// Returns: the new transfer's id. Size is unknown up front (the archive is
+    /// generated as it streams), so progress is reported in archive bytes.
+    pub(crate) fn enqueue_directory_tar(
+        &self,
+        session_id: SessionId,
+        direction: Direction,
+        src_dir: &str,
+        dest_parent: &str,
+    ) -> TransferId {
+        let id = Uuid::new_v4();
+        let item = Arc::new(TransferItem {
+            id,
+            kind: TransferKind::DirectoryTar,
+            session_id: Mutex::new(session_id),
+            origin: Mutex::new(None),
+            direction,
+            src: src_dir.to_string(),
+            effective_dest: Mutex::new(dest_parent.to_string()),
+            dest: dest_parent.to_string(),
+            size: 0,
+            batch_id: Uuid::new_v4(),
+            bytes_done: AtomicU64::new(0),
+            attempts: AtomicU32::new(0),
+            pause_requested: AtomicBool::new(false),
+            cancel: Mutex::new(CancellationToken::new()),
+            state: Mutex::new(TransferState::Queued),
+        });
+        self.shared.items.insert(id, item);
+        self.shared.pending.lock().unwrap().push_back(id);
+        self.shared.emit_state(id, TransferState::Queued, None);
+        self.shared.notify.notify_one();
+        id
     }
 
     /// Re-attach snapshot-restored transfers to a freshly connected session.

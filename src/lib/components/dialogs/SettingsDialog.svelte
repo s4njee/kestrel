@@ -2,9 +2,10 @@
   SettingsDialog.svelte — Edit and persist user settings.
 
   Edits a working copy of the current settings and saves via the settings store
-  (the backend applies concurrency + conflict policy live). Covers transfer
-  concurrency, the default conflict policy, an optional default local directory,
-  and the show-hidden-files toggle.
+  (the backend applies concurrency, conflict policy, and tar acceleration live).
+  Covers transfer concurrency, the default conflict policy, an optional default
+  local directory, the show-hidden-files toggle, and tar acceleration for
+  recursive folder transfers.
 
   Props:
   - onClose: () => void — dismiss the dialog.
@@ -28,6 +29,7 @@
   let defaultConflict = $state<DefaultConflict>(start.defaultConflict);
   let defaultLocalDir = $state(start.defaultLocalDir ?? "");
   let showHidden = $state(start.showHidden);
+  let tarAcceleration = $state(start.tarAcceleration);
 
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -55,6 +57,7 @@
       defaultConflict,
       defaultLocalDir: defaultLocalDir.trim() === "" ? null : defaultLocalDir.trim(),
       showHidden,
+      tarAcceleration,
     };
     try {
       await settings.save(next);
@@ -94,6 +97,15 @@
     <label class="check">
       <input type="checkbox" bind:checked={showHidden} /> Show hidden files
     </label>
+
+    <label class="check">
+      <input type="checkbox" bind:checked={tarAcceleration} /> Tar-accelerate folder transfers
+    </label>
+    <p class="note">
+      Streams a whole folder as one archive when the server has <code>tar</code> — much faster for many
+      small files. Falls back to per-file transfers automatically. Per-file conflict prompts don't apply
+      in this mode.
+    </p>
 
     {#if error}
       <p class="error" role="alert">{error}</p>
@@ -151,6 +163,15 @@
     flex-direction: row;
     align-items: center;
     gap: 6px;
+  }
+  .note {
+    margin: -6px 0 0 22px;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--dim);
+  }
+  .note code {
+    color: var(--muted);
   }
   .error {
     color: #c0392b;

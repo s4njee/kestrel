@@ -35,11 +35,22 @@ pub struct Settings {
     /// Whether hidden (dot) files are shown in the panes.
     #[serde(default)]
     pub show_hidden: bool,
+    /// Whether recursive directory transfers may use tar acceleration when the
+    /// remote host supports it (E8-S2). Off falls back to per-file transfers.
+    #[serde(default = "default_true")]
+    pub tar_acceleration: bool,
+}
+
+/// Serde default for boolean settings that are on unless disabled.
+///
+/// Returns: `true`.
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
     /// Sensible first-run defaults: 3 concurrent transfers, prompt on conflict,
-    /// no pinned local dir, hidden files off.
+    /// no pinned local dir, hidden files off, tar acceleration on.
     ///
     /// Returns: the default [`Settings`].
     fn default() -> Self {
@@ -48,6 +59,7 @@ impl Default for Settings {
             default_conflict: "ask".to_string(),
             default_local_dir: None,
             show_hidden: false,
+            tar_acceleration: true,
         }
     }
 }
@@ -172,12 +184,36 @@ mod tests {
             default_conflict: "overwrite".into(),
             default_local_dir: Some("/tmp".into()),
             show_hidden: true,
+            tar_acceleration: false,
         });
         assert_eq!(saved.concurrency, 6);
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"version\": 1"));
         // Reloading sees the same settings.
         assert_eq!(SettingsStore::load(path).get(), saved);
+    }
+
+    /// A settings.json written before `tar_acceleration` existed must still
+    /// load, defaulting the new field to on rather than failing the whole file.
+    #[test]
+    fn older_settings_file_without_tar_field_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"concurrency":4,"defaultConflict":"skip",
+                "defaultLocalDir":null,"showHidden":true}}"#,
+        )
+        .unwrap();
+
+        let loaded = SettingsStore::load(path).get();
+        assert_eq!(loaded.concurrency, 4);
+        assert_eq!(loaded.default_conflict, "skip");
+        assert!(loaded.show_hidden);
+        assert!(
+            loaded.tar_acceleration,
+            "a missing tar_acceleration must default to enabled"
+        );
     }
 
     /// Concurrency is clamped into 1..=8 on save.

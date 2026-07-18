@@ -34,14 +34,15 @@ pub async fn save_settings(
     Ok(stored)
 }
 
-/// Push concurrency and the default conflict policy from `settings` into the
-/// engine.
+/// Push concurrency, the default conflict policy, and the tar-acceleration
+/// toggle from `settings` into the engine.
 ///
 /// Arguments: `engine` — the transfer engine; `settings` — the settings to
 /// apply. Returns: `()`. Called on save and once at startup.
 pub fn apply_runtime(engine: &Engine, settings: &Settings) {
     engine.set_concurrency(settings.concurrency as usize);
     engine.set_conflict_policy(parse_conflict(&settings.default_conflict));
+    engine.set_tar_acceleration(settings.tar_acceleration);
 }
 
 /// Map a default-conflict string to the engine's policy.

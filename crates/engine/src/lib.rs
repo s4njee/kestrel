@@ -16,6 +16,7 @@
 //! - [`auth`]     — auth methods, ssh-agent, key loading
 //! - [`hostkey`]  — known_hosts parsing and trust-on-first-use decisions
 //! - [`transfer`] — transfer queue, worker pool, chunked I/O, retry policy
+//! - [`tarstream`] — tar-accelerated directory transfers (E8-S2)
 //! - [`watcher`]  — local-directory filesystem watching
 
 pub mod auth;
@@ -27,6 +28,7 @@ pub mod hostkey;
 pub mod pathsafe;
 pub mod session;
 pub mod shell;
+pub mod tarstream;
 pub mod transfer;
 pub mod watcher;
 
@@ -49,5 +51,5 @@ pub use transfer::io::{copy_file, CopyOptions};
 pub use watcher::{DirWatcher, DEFAULT_DEBOUNCE};
 pub use transfer::{
     ConflictResolution, Direction, PersistedTransfer, SessionOrigin, TransferId, TransferItem,
-    TransferRequest, TransferState,
+    TransferKind, TransferRequest, TransferState,
 };

@@ -13,6 +13,7 @@ class SettingsStore {
     defaultConflict: "ask",
     defaultLocalDir: null,
     showHidden: false,
+    tarAcceleration: true,
   });
   #loaded = $state(false);
 

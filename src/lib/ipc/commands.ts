@@ -72,6 +72,12 @@ export interface Settings {
   defaultConflict: DefaultConflict;
   defaultLocalDir: string | null;
   showHidden: boolean;
+  /**
+   * Whether recursive directory transfers may stream as a single tar archive
+   * when the remote host supports it. Falls back to per-file transfers when off
+   * or unsupported.
+   */
+  tarAcceleration: boolean;
 }
 
 /** A reply to a prompt (mirrors `PromptReplyDto`). */

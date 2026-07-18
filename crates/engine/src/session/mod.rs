@@ -73,6 +73,8 @@ pub struct Engine {
     queue: TransferQueue,
     /// Live interactive shells, keyed by shell id.
     shells: Arc<DashMap<crate::shell::ShellId, crate::shell::Shell>>,
+    /// Whether directory transfers may use tar acceleration (E8-S2).
+    tar_acceleration: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Engine {
@@ -93,6 +95,7 @@ impl Engine {
             sessions,
             queue,
             shells: Arc::new(DashMap::new()),
+            tar_acceleration: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
 
@@ -135,6 +138,20 @@ impl Engine {
         let session = self
             .session(session_id)
             .ok_or_else(|| EngineError::NotFound(format!("session {session_id}")))?;
+
+        // Tar acceleration: one stream for the whole tree instead of a
+        // round-trip per file. Only when the user has it on AND the remote can
+        // actually run tar — otherwise fall through to the per-file walk below,
+        // which stays the correctness baseline.
+        if self.tar_acceleration() && crate::tarstream::remote_has_tar(&session).await {
+            return Ok(vec![self.queue.enqueue_directory_tar(
+                session_id,
+                direction,
+                src_dir,
+                dest_parent,
+            )]);
+        }
+
         let remote = session.remote_fs().await;
         let local = LocalFs::new();
 
@@ -441,6 +458,23 @@ impl Engine {
         for id in doomed {
             self.close_shell(id);
         }
+    }
+
+    /// Enable or disable tar acceleration for directory transfers.
+    ///
+    /// Arguments: `enabled` — when false, `enqueue_directory` always uses the
+    /// per-file path even on hosts that have `tar`.
+    pub fn set_tar_acceleration(&self, enabled: bool) {
+        self.tar_acceleration
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether tar acceleration is currently permitted.
+    ///
+    /// Returns: the toggle's value (default `true`).
+    pub fn tar_acceleration(&self) -> bool {
+        self.tar_acceleration
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// List the ids of all live sessions.
