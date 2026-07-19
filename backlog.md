@@ -7,8 +7,8 @@
 > (B-ids) that have no tasks.md story yet**. Promote a B-item by writing it up
 > as a proper story in tasks.md; on any conflict, tasks.md wins.
 >
-> Status snapshot: **55 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S4,
-> E8-S8 done), 18 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
+> Status snapshot: **56 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S4,
+> E8-S8, E8-S12 done), 17 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
 
 ## 1 — Release blockers (maintainer-only, 🔒)
 

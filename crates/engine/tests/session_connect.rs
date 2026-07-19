@@ -139,3 +139,50 @@ async fn changed_key_hard_fails() {
     assert_eq!(prompts.recv().await, Some(true));
     assert!(engine.session_ids().is_empty());
 }
+
+/// E8-S12: a connected session periodically broadcasts round-trip latency
+/// samples, measured by timing a tiny stat on the interactive channel.
+#[tokio::test]
+async fn connected_session_emits_latency_samples() {
+    let server = support::start_password_server("hud", "pw").await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(Engine::new(empty_known_hosts(&dir)));
+    engine.set_latency_interval(std::time::Duration::from_millis(50));
+
+    let _prompts = spawn_hostkey_responder(engine.clone(), true);
+    let mut events = engine.subscribe();
+    let id = engine
+        .connect(password_params(server.port, "hud", "pw"))
+        .await
+        .expect("connect");
+
+    // Collect a couple of samples; each must belong to our session and carry a
+    // sane round-trip (loopback, so well under a second).
+    let mut samples = Vec::new();
+    let deadline = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while samples.len() < 2 {
+            if let Ok(EngineEvent::LatencySample { session_id, rtt_ms }) = events.recv().await {
+                samples.push((session_id, rtt_ms));
+            }
+        }
+    })
+    .await;
+    deadline.expect("expected latency samples within 5s");
+    for (session_id, rtt_ms) in samples {
+        assert_eq!(session_id, id);
+        assert!(rtt_ms < 1_000, "loopback rtt should be tiny, got {rtt_ms}ms");
+    }
+
+    // Disconnecting stops the probe: no fresh samples after a settle period.
+    engine.disconnect(id).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    while events.try_recv().is_ok() {}
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let mut fresh = 0;
+    while let Ok(event) = events.try_recv() {
+        if matches!(event, EngineEvent::LatencySample { .. }) {
+            fresh += 1;
+        }
+    }
+    assert_eq!(fresh, 0, "the monitor must stop with the session");
+}

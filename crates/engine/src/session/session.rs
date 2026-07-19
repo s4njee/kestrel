@@ -565,10 +565,45 @@ const SUPERVISOR_POLL: Duration = Duration::from_secs(2);
 /// Maximum reconnect attempts before giving up.
 const MAX_RECONNECT_ATTEMPTS: u32 = 10;
 
+/// Spawn the latency monitor: a per-session task that periodically times a
+/// tiny SFTP `stat("/")` on the interactive channel and broadcasts the round
+/// trip as [`EngineEvent::LatencySample`].
+///
+/// The probe doubles as an application-level liveness signal and is
+/// deliberately minimal (~one attribute packet each way). Failures are simply
+/// skipped — the supervisor owns disconnect detection and reconnects — and the
+/// task ends when the session shuts down.
+///
+/// Arguments: `session` — the session to probe; `interval` — time between
+/// probes.
+/// Returns: `()`; the task runs until session shutdown.
+pub fn spawn_latency_monitor(session: Arc<Session>, interval: std::time::Duration) {
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = session.shutdown.cancelled() => return,
+                _ = tokio::time::sleep(interval) => {}
+            }
+            use crate::fs::RemoteFs as _;
+            let fs = session.remote_fs().await;
+            let started = std::time::Instant::now();
+            if fs.stat("/").await.is_ok() {
+                let rtt_ms = started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                let _ = session.events.send(EngineEvent::LatencySample {
+                    session_id: session.id,
+                    rtt_ms,
+                });
+            }
+        }
+    });
+}
+
 /// Spawn a supervisor that detects connection drops and auto-reconnects with
 /// backoff, emitting reconnecting/connected/disconnected events.
 ///
 /// Arguments: `session` — the session to watch (stops when it is shut down).
+/// Returns: `()`; the task runs until session shutdown or the reconnect budget
+/// is exhausted.
 pub fn spawn_supervisor(session: Arc<Session>) {
     tokio::spawn(async move {
         let policy = RetryPolicy::default();

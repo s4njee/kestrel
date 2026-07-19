@@ -93,6 +93,12 @@ pub enum EngineEvent {
         existing_fingerprint: Option<String>,
     },
     /// A keyboard-interactive auth challenge needs user responses.
+    /// One round-trip latency measurement for a live session (E8-S12), taken
+    /// by timing a tiny SFTP stat on the interactive channel.
+    LatencySample {
+        session_id: SessionId,
+        rtt_ms: u32,
+    },
     /// Raw output from an interactive shell (stdout+stderr, verbatim bytes).
     ShellData {
         shell_id: crate::shell::ShellId,

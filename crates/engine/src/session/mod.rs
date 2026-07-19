@@ -78,6 +78,8 @@ pub struct Engine {
     edits: EditManager,
     /// Whether directory transfers may use tar acceleration (E8-S2).
     tar_acceleration: Arc<std::sync::atomic::AtomicBool>,
+    /// Milliseconds between latency probes on each session (E8-S12).
+    latency_interval_ms: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Engine {
@@ -101,6 +103,7 @@ impl Engine {
             shells: Arc::new(DashMap::new()),
             edits,
             tar_acceleration: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            latency_interval_ms: Arc::new(std::sync::atomic::AtomicU64::new(5_000)),
         }
     }
 
@@ -359,6 +362,14 @@ impl Engine {
         let session = Arc::new(session);
         // Watch for drops and auto-reconnect.
         session::spawn_supervisor(session.clone());
+        // Broadcast periodic round-trip samples for the health HUD.
+        session::spawn_latency_monitor(
+            session.clone(),
+            std::time::Duration::from_millis(
+                self.latency_interval_ms
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+        );
         self.sessions.insert(id, session);
         // Transfers restored from a snapshot carry a stale session id (sessions
         // get a fresh UUID each connect); re-attach the ones belonging to this
@@ -501,6 +512,17 @@ impl Engine {
         for id in doomed {
             self.close_shell(id);
         }
+    }
+
+    /// Set the interval between per-session latency probes.
+    ///
+    /// Arguments: `interval` — time between probes (default 5s). Applies to
+    /// sessions connected after the call; tests shorten it for fast samples.
+    pub fn set_latency_interval(&self, interval: std::time::Duration) {
+        self.latency_interval_ms.store(
+            interval.as_millis().min(u128::from(u64::MAX)) as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     /// Enable or disable tar acceleration for directory transfers.

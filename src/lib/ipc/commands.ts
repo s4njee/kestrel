@@ -178,7 +178,9 @@ export type SessionEvent =
   | { type: "editSessionClosed"; editId: string }
   /** Raw shell output; `data` is base64 (terminal bytes are not valid UTF-8). */
   | { type: "shellData"; shellId: string; data: string }
-  | { type: "shellClosed"; shellId: string };
+  | { type: "shellClosed"; shellId: string }
+  /** One round-trip latency sample for a live session (health HUD). */
+  | { type: "latencySample"; sessionId: string; rttMs: number };
 
 /**
  * Connect and authenticate a session.

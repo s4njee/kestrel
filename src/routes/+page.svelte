@@ -16,6 +16,7 @@
   import { bookmarks } from "$lib/stores/bookmarks.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { logs } from "$lib/stores/logs.svelte";
+  import { health, latencyLevel, sparkline } from "$lib/stores/health.svelte";
   import { edits } from "$lib/stores/edits.svelte";
   import { localPane, remotePane } from "$lib/stores/panes.svelte";
   import { initSessionEvents, setLocalDirChangedHandler } from "$lib/ipc/events";
@@ -47,6 +48,7 @@
   import { buildCommands } from "$lib/palette";
   import { toasts } from "$lib/stores/toasts.svelte";
   import { parentPath, joinPath } from "$lib/utils/path";
+  import { formatRate } from "$lib/utils/format";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { openPath } from "@tauri-apps/plugin-opener";
@@ -95,6 +97,20 @@
     active ? `${active.info.username}@${active.info.host}:${active.info.port}` : "not connected",
   );
   let metaChip = $derived(active ? "sftp · ssh-2" : "sftp");
+  // Health HUD: the active session's latency ring and the queue's summed rate.
+  let rttHud = $derived.by(() => {
+    const id = active?.info.id;
+    if (!id) return null;
+    const latest = health.latest(id);
+    if (latest == null) return null;
+    return { spark: sparkline(health.samples(id)), ms: latest, level: latencyLevel(latest) };
+  });
+  let throughputHud = $derived.by(() => {
+    const total = transfers.list
+      .filter((t) => t.state === "running")
+      .reduce((sum, t) => sum + t.rateBps, 0);
+    return total > 0 ? formatRate(total) : null;
+  });
   let remoteBanner = $derived(
     active?.state === "reconnecting" ? "Connection lost — reconnecting…" : null,
   );
@@ -716,6 +732,8 @@
     onRefresh={refreshActive}
     onQueue={() => ui.toggleTransferPanel()}
     onSettings={() => (showSettings = true)}
+    rtt={rttHud}
+    throughput={throughputHud}
   />
 
   <main class="workspace">

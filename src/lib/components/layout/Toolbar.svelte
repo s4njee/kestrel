@@ -14,6 +14,9 @@
   - editSessions?: EditSession[] — managed remote files open in local editors.
   - canUpload/canDownload?: boolean — enable the transfer links.
   - onConnect/onUpload/onDownload/onRefresh/onQueue/onSettings?: () => void
+  - rtt?: { spark, ms, level } | null — health HUD: latency sparkline + latest
+    round trip, tinted by level ("good" | "warn" | "bad").
+  - throughput?: string | null — aggregate transfer rate while the queue runs.
 -->
 <script lang="ts">
   import type { EditSession } from "$lib/ipc/commands";
@@ -33,6 +36,8 @@
     onRefresh?: () => void;
     onQueue?: () => void;
     onSettings?: () => void;
+    rtt?: { spark: string; ms: number; level: "good" | "warn" | "bad" } | null;
+    throughput?: string | null;
   }
 
   let {
@@ -49,6 +54,8 @@
     onRefresh,
     onQueue,
     onSettings,
+    rtt = null,
+    throughput = null,
   }: Props = $props();
 </script>
 
@@ -68,6 +75,14 @@
     <button class="link" onclick={() => onSettings?.()}>[settings]</button>
     {#if editSessions.length > 0}
       <EditSessionsChip sessions={editSessions} onClose={(id) => onCloseEdit?.(id)} />
+    {/if}
+    {#if throughput}
+      <span class="throughput" title="Aggregate transfer rate">{throughput}</span>
+    {/if}
+    {#if rtt}
+      <span class="rtt {rtt.level}" title="Round-trip latency">
+        <span class="spark">{rtt.spark}</span>{rtt.ms}ms
+      </span>
     {/if}
     <span class="live" class:on={connected}>● {connected ? "live" : "idle"}</span>
   </span>
@@ -117,6 +132,31 @@
   .link:disabled {
     color: var(--dim);
     cursor: not-allowed;
+  }
+  /* Health HUD: the sparkline stays dim; only the ms value tints by band —
+     and "good" stays neutral so the sparse-accent rule holds. */
+  .rtt {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .rtt .spark {
+    color: var(--dim);
+    letter-spacing: 1px;
+  }
+  .rtt.warn {
+    color: var(--warn);
+  }
+  .rtt.bad {
+    color: var(--danger);
+  }
+  .throughput {
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
   }
   .live {
     color: var(--dim);

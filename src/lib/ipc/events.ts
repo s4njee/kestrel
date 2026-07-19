@@ -17,6 +17,7 @@ import { transfers } from "$lib/stores/transfers.svelte";
 import { conflicts } from "$lib/stores/conflicts.svelte";
 import { toasts } from "$lib/stores/toasts.svelte";
 import { logs } from "$lib/stores/logs.svelte";
+import { health } from "$lib/stores/health.svelte";
 import { edits } from "$lib/stores/edits.svelte";
 
 /** Handler invoked with decoded shell output (set by the terminal component). */
@@ -65,6 +66,7 @@ export function routeSessionEvent(event: SessionEvent): void {
   switch (event.type) {
     case "connectionState":
       sessions.setConnectionState(event.sessionId, event.state);
+      if (event.state === "disconnected") health.forget(event.sessionId);
       if (event.state === "reconnecting") logs.status("Connection lost — reconnecting…");
       else if (event.state === "disconnected")
         logs.status(`Disconnected${event.reason ? ` — ${event.reason}` : ""}`);
@@ -96,6 +98,9 @@ export function routeSessionEvent(event: SessionEvent): void {
       break;
     case "shellClosed":
       shellClosedHandler?.(event.shellId);
+      break;
+    case "latencySample":
+      health.record(event.sessionId, event.rttMs);
       break;
   }
 }

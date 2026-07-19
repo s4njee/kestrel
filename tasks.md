@@ -449,7 +449,7 @@ only hard dependency is E8-S1, the shared enabler.
     a per-bookmark opt-out.
   - Accept: bookmark schema/store tests; snippets fire once per connect and
     appear in the terminal like typed input.
-- [ ] **E8-S12 — Connection health HUD** (S)
+- [x] **E8-S12 — Connection health HUD** (S)
   - Do: measure round-trip latency with a tiny periodic SFTP stat and show it
     live in the topbar next to `● live` (`▁▂▃` sparkline + ms, green/amber/red
     by threshold), plus aggregate transfer throughput when the queue is active.
@@ -591,6 +591,8 @@ lib/utils/{path,format}.ts
 ## Deviations
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E8-S12 — connection health HUD**: a per-session monitor task (`spawn_latency_monitor`, beside the supervisor and sharing its shutdown token) times a tiny `stat("/")` on the interactive channel and broadcasts `EngineEvent::LatencySample`; the topbar renders the active session's last 12 samples as a `▁▂▃` sparkline plus the latest ms next to `● live`, and the summed rate of running transfers appears while the queue is active. **One deviation from the story text:** it said to "piggyback on the existing keepalive cadence — no new traffic when idle", but russh does not expose keepalive round-trip timing, so a 5s stat probe is used instead (~one attribute packet each way; it doubles as an application-level liveness signal and stops with the session). The interval is settable (`Engine::set_latency_interval`) so the integration test runs at 50ms — it proves samples are emitted for the right session with sane loopback RTTs and that **disconnect stops the probe**. Colour respects the sparse-accent rule: "good" latency stays neutral muted; only warn/bad tint (amber/red); the sparkline itself stays dim. The HUD hides entirely until the first sample, verified in the preview (no Tauri → no samples → no `.rtt`/`.throughput` nodes).
 
 - **E8-S8 — command palette**: Cmd/Ctrl+K opens a terminal-grid palette (`>` prompt, fuzzy filter, ArrowUp/Down + Enter, Escape). The model lives in `src/lib/palette.ts` (pure, unit-tested): a subsequence fuzzy matcher with word-start/consecutive bonuses, and `buildCommands`, whose `actions` parameter is a **total `Record<ShortcutAction, …>`** — so a new keymap shortcut without a palette entry is a _compile error_, which is how "reuse the keymap's registry, not a parallel list" is enforced (the `palette` action itself is deliberately excluded from the inventory). Commands that cannot run right now (upload/download while disconnected or with nothing selected) are omitted rather than shown disabled, and each bookmark appears as `connect: <name>` with `user@host` as its hint. On close (Enter, Escape, click, backdrop) focus is handed to the active pane's section — `FilePane`'s `<section>` gained `tabindex={-1}` (with a svelte-ignore: the a11y rule flags any tabindex on noninteractive elements, including −1) so global shortcuts work immediately after. Cmd/Ctrl+K inside an input does nothing (the keymap's editable-target suppression), which also means the chord cannot re-fire inside the palette itself. Verified beyond unit tests **live in the browser**: a real Cmd+K keydown opened it with the input focused, upload/download were correctly absent while disconnected, typing `set` ranked `settings…` first, Enter genuinely opened the Settings dialog, and after Escape `document.activeElement` was the local pane. 24 new tests (matcher/ranking/inventory-completeness/component keyboard flow + the keymap chord).
 

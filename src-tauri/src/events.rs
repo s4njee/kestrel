@@ -49,6 +49,9 @@ pub enum SessionEventDto {
     /// An interactive shell ended.
     #[serde(rename_all = "camelCase")]
     ShellClosed { shell_id: String },
+    /// One round-trip latency sample for a live session (health HUD).
+    #[serde(rename_all = "camelCase")]
+    LatencySample { session_id: String, rtt_ms: u32 },
     /// A managed remote-file edit session changed state.
     #[serde(rename_all = "camelCase")]
     EditSessionChanged { session: crate::dto::EditSessionDto },
@@ -131,6 +134,12 @@ impl SessionEventDto {
             EngineEvent::ShellClosed { shell_id } => Some(SessionEventDto::ShellClosed {
                 shell_id: shell_id.to_string(),
             }),
+            EngineEvent::LatencySample { session_id, rtt_ms } => {
+                Some(SessionEventDto::LatencySample {
+                    session_id: session_id.to_string(),
+                    rtt_ms,
+                })
+            }
             EngineEvent::HostKeyPrompt {
                 prompt_id,
                 host,
