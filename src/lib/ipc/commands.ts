@@ -219,7 +219,12 @@ export function closeEditSession(editId: string): Promise<void> {
   return invoke("close_edit_session", { editId });
 }
 
-/** List the live managed edit sessions. */
+/**
+ * List the live managed edit sessions.
+ *
+ * @returns every active edit session (empty when none are running), used to
+ *   rebuild the edits store after a webview reload.
+ */
 export function listEditSessions(): Promise<EditSession[]> {
   return invoke("list_edit_sessions");
 }

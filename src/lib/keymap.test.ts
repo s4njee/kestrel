@@ -11,6 +11,12 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut({ key: "Tab" })).toBe("switchPane");
   });
 
+  it("maps Cmd/Ctrl+K to the command palette", () => {
+    expect(resolveShortcut({ key: "k", metaKey: true })).toBe("palette");
+    expect(resolveShortcut({ key: "k", ctrlKey: true })).toBe("palette");
+    expect(resolveShortcut({ key: "k" })).toBeNull();
+  });
+
   it("maps Cmd/Ctrl chords", () => {
     expect(resolveShortcut({ key: "r", metaKey: true })).toBe("refresh");
     expect(resolveShortcut({ key: "l", ctrlKey: true })).toBe("focusPath");

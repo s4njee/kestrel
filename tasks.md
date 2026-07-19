@@ -421,7 +421,7 @@ only hard dependency is E8-S1, the shared enabler.
     Results as a flat list that jumps the pane to the containing directory.
   - Accept: engine tests for both paths (exec on the test server; walker
     fallback); cancel mid-search leaves no orphan work.
-- [ ] **E8-S8 — Command palette** (S)
+- [x] **E8-S8 — Command palette** (S)
   - Do: Cmd/Ctrl+K opens a terminal-grid palette (monospace, `>` prompt)
     fuzzy-matching every existing action (connect, upload, download, refresh,
     new folder, settings, tab switch, bookmarks by name…) reusing the keymap's
@@ -591,6 +591,8 @@ lib/utils/{path,format}.ts
 ## Deviations
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E8-S8 — command palette**: Cmd/Ctrl+K opens a terminal-grid palette (`>` prompt, fuzzy filter, ArrowUp/Down + Enter, Escape). The model lives in `src/lib/palette.ts` (pure, unit-tested): a subsequence fuzzy matcher with word-start/consecutive bonuses, and `buildCommands`, whose `actions` parameter is a **total `Record<ShortcutAction, …>`** — so a new keymap shortcut without a palette entry is a _compile error_, which is how "reuse the keymap's registry, not a parallel list" is enforced (the `palette` action itself is deliberately excluded from the inventory). Commands that cannot run right now (upload/download while disconnected or with nothing selected) are omitted rather than shown disabled, and each bookmark appears as `connect: <name>` with `user@host` as its hint. On close (Enter, Escape, click, backdrop) focus is handed to the active pane's section — `FilePane`'s `<section>` gained `tabindex={-1}` (with a svelte-ignore: the a11y rule flags any tabindex on noninteractive elements, including −1) so global shortcuts work immediately after. Cmd/Ctrl+K inside an input does nothing (the keymap's editable-target suppression), which also means the chord cannot re-fire inside the palette itself. Verified beyond unit tests **live in the browser**: a real Cmd+K keydown opened it with the input focused, upload/download were correctly absent while disconnected, typing `set` ranked `settings…` first, Enter genuinely opened the Settings dialog, and after Escape `document.activeElement` was the local pane. 24 new tests (matcher/ranking/inventory-completeness/component keyboard flow + the keymap chord).
 
 - **E8-S4 — edit-and-sync verification**: each remote file gets a dedicated managed `TempDir`; the initial copy uses the existing atomic download path, then the existing 300 ms `DirWatcher` drives serialized uploads through pooled SFTP channels. Every save stats the remote file and compares its exact mtime with the last downloaded/uploaded baseline; a mismatch moves the session to `Conflict` without overwriting remote data. The Tauri layer exposes only path/state metadata, opens the local path through the already-configured opener plugin, and the toolbar's `[edit:N]` chip lists watching/uploading/conflict/error sessions with a close action. Tempdir-driven engine tests prove save→reupload, duplicate-session reuse, conflict preservation, and cleanup; store/event/component tests cover the indicator lifecycle. A real-editor/native-window click-through was not possible in this environment, so that acceptance check remains manual.
 

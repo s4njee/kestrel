@@ -95,11 +95,16 @@
   }
 </script>
 
+<!-- tabindex={-1}: programmatically focusable (the command palette returns
+     focus here on close) without joining the tab order. Svelte's a11y lint
+     flags any tabindex on a noninteractive element, including -1. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <section
   class="pane"
   class:active
   class:drag-over={dragOver}
   data-kind={pane.kind}
+  tabindex={-1}
   aria-label={`${pane.kind} pane`}
   onpointerdown={onActivate}
   onfocusin={onActivate}

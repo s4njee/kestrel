@@ -44,12 +44,14 @@
   import type { PaneKind } from "$lib/types";
   import { buildTransferRequests, dropDirection, uploadRequestsForPaths } from "$lib/transfer";
   import { resolveShortcut } from "$lib/keymap";
+  import { buildCommands } from "$lib/palette";
   import { toasts } from "$lib/stores/toasts.svelte";
   import { parentPath, joinPath } from "$lib/utils/path";
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { openPath } from "@tauri-apps/plugin-opener";
   import ContextMenu, { type MenuItem } from "$lib/components/common/ContextMenu.svelte";
+  import CommandPalette from "$lib/components/common/CommandPalette.svelte";
   import PermissionsDialog from "$lib/components/dialogs/PermissionsDialog.svelte";
   import DeleteConfirmDialog from "$lib/components/dialogs/DeleteConfirmDialog.svelte";
   import InputDialog from "$lib/components/dialogs/InputDialog.svelte";
@@ -68,6 +70,7 @@
 
   let showConnect = $state(false);
   let showSettings = $state(false);
+  let showPalette = $state(false);
   // The bookmark prefilling the connect dialog: null = a fresh connection.
   let connectSeed = $state<Bookmark | null>(null);
 
@@ -592,6 +595,57 @@
   }
 
   /**
+   * Close the command palette and hand focus back to the active pane, so the
+   * global shortcuts (which ignore keystrokes inside inputs) work immediately.
+   */
+  function closePalette(): void {
+    showPalette = false;
+    (
+      document.querySelector(`section[data-kind="${ui.activePane}"]`) as HTMLElement | null
+    )?.focus();
+  }
+
+  /**
+   * Build the palette's command inventory from live state (called on open).
+   *
+   * The actions record is total over ShortcutAction (compile-checked), so a new
+   * shortcut without a palette entry cannot slip through.
+   *
+   * @returns the commands for CommandPalette, in canonical order.
+   */
+  function paletteCommands() {
+    return buildCommands({
+      actions: {
+        refresh: refreshActive,
+        focusPath: () => document.getElementById(`path-input-${ui.activePane}`)?.focus(),
+        download: () => {
+          if (canDownload) void download();
+        },
+        upload: () => {
+          if (canUpload) void upload();
+        },
+        rename: () => {
+          const entry = paneOf(ui.activePane).selectedEntries[0];
+          if (entry) startRename(ui.activePane, entry);
+        },
+        delete: () => startDelete(ui.activePane),
+        switchPane: () => ui.setActivePane(ui.activePane === "local" ? "remote" : "local"),
+        // The palette does not list itself.
+        palette: () => {},
+      },
+      connected,
+      canUpload,
+      canDownload,
+      onConnect: () => void onConnect(),
+      onSettings: () => (showSettings = true),
+      onQueue: () => ui.toggleTransferPanel(),
+      onNewFolder: () => startNewFolder(ui.activePane),
+      bookmarks: bookmarks.items,
+      onConnectBookmark: (b) => void connectFromBookmark(b),
+    });
+  }
+
+  /**
    * Global keyboard shortcuts (mapping in $lib/keymap; dispatch here).
    *
    * @param event - the window keydown event; its default is prevented only when a
@@ -619,6 +673,11 @@
       case "switchPane":
         event.preventDefault();
         ui.setActivePane(kind === "local" ? "remote" : "local");
+        break;
+      case "palette":
+        event.preventDefault();
+        if (showPalette) closePalette();
+        else showPalette = true;
         break;
       case "refresh":
         event.preventDefault();
@@ -711,6 +770,9 @@
 {/if}
 {#if showSettings}
   <SettingsDialog onClose={() => (showSettings = false)} />
+{/if}
+{#if showPalette}
+  <CommandPalette commands={paletteCommands()} onClose={closePalette} />
 {/if}
 <HostKeyDialog />
 <ConflictDialog />

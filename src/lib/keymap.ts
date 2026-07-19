@@ -7,7 +7,7 @@
 
 /** An action a shortcut can trigger. */
 export type ShortcutAction =
-  "refresh" | "focusPath" | "download" | "upload" | "rename" | "delete" | "switchPane";
+  "refresh" | "focusPath" | "download" | "upload" | "rename" | "delete" | "switchPane" | "palette";
 
 /** Minimal shape of the key event fields we consult (eases testing). */
 export interface KeyLike {
@@ -53,6 +53,8 @@ export function resolveShortcut(event: KeyLike): ShortcutAction | null {
   const meta = event.metaKey || event.ctrlKey;
   if (!meta) return null;
   switch (event.key) {
+    case "k":
+      return "palette";
     case "r":
       return "refresh";
     case "l":
