@@ -2,8 +2,11 @@
   StatusBar.svelte — Bottom console region: interactive shell + session log.
 
   Two tabs over one resizable region:
-  - **shell** — a real interactive SSH shell (PTY) on the active session, via
-    Terminal.svelte. This is a genuine terminal, not a transcript.
+  - **shell** — a real interactive SSH shell (PTY) **per session** (E8-S9), via
+    Terminal.svelte. This is a genuine terminal, not a transcript. Every
+    session's terminal stays mounted and only the active one is shown, so
+    switching host tabs returns to that host's live shell with its scrollback
+    intact rather than opening a fresh one.
   - **log** — the tagged session stream (Status/Command/Response) from the logs
     store, with a blinking prompt line. Read-only.
 
@@ -20,21 +23,24 @@
     shell drives the remote pane; the shell itself is never written to.
   - connectionLabel: string   — e.g. "not connected" or "user@host".
   - transferCount: number     — active transfers (shown on the log's prompt).
-  - sessionId: string | null  — session the shell attaches to; null = no shell.
+  - sessions: SessionEntry[]  — every connected session; each gets a terminal.
+  - sessionId: string | null  — the active session, whose terminal is shown.
 -->
 <script lang="ts">
   import { logs } from "$lib/stores/logs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import Terminal from "./Terminal.svelte";
+  import type { SessionEntry } from "$lib/stores/sessions.svelte";
 
   interface Props {
     connectionLabel: string;
     transferCount: number;
+    sessions?: SessionEntry[];
     sessionId: string | null;
     onCwd?: (cwd: string) => void;
   }
 
-  let { connectionLabel, transferCount, sessionId, onCwd }: Props = $props();
+  let { connectionLabel, transferCount, sessions = [], sessionId, onCwd }: Props = $props();
 
   /** Which tab is showing. */
   let tab = $state<"shell" | "log">("shell");
@@ -138,10 +144,21 @@
   </div>
 
   <div class="pane" class:hidden={tab !== "shell"}>
-    {#if sessionId}
-      <Terminal {sessionId} {onCwd} />
-    {:else}
+    {#if sessions.length === 0}
       <p class="hint">not connected — use [connect] to open a shell</p>
+    {:else}
+      <!-- One terminal per session, all mounted; only the active one is shown.
+           Unmounting the others would close their shells and lose scrollback,
+           which is the whole point of per-session tabs. Keyed by session id so
+           a closed tab's terminal is destroyed (and its shell torn down). -->
+      {#each sessions as entry (entry.info.id)}
+        <div class="shell-slot" class:hidden={entry.info.id !== sessionId}>
+          <Terminal
+            sessionId={entry.info.id}
+            onCwd={entry.info.id === sessionId ? onCwd : undefined}
+          />
+        </div>
+      {/each}
     {/if}
   </div>
 
@@ -227,8 +244,20 @@
   .pane {
     flex: 1 1 auto;
     min-height: 0;
+    /* Anchors the stacked per-session shell slots. */
+    position: relative;
   }
   .pane.hidden {
+    display: none;
+  }
+  /* Every session's terminal occupies the same box; only one is displayed.
+     Stacking (rather than reflowing) keeps each xterm's measured size stable,
+     so a hidden shell does not have to re-fit when its tab comes back. */
+  .shell-slot {
+    position: absolute;
+    inset: 0;
+  }
+  .shell-slot.hidden {
     display: none;
   }
   .log {

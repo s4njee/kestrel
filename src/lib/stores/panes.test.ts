@@ -2,7 +2,7 @@
 // path-keyed multi-selection.
 
 import { describe, it, expect } from "vitest";
-import { PaneStore } from "./panes.svelte";
+import { PaneStore, forgetRemotePane, remotePaneCount, remotePaneFor } from "./panes.svelte";
 import type { DirEntry } from "$lib/ipc/commands";
 
 function entry(name: string, kind: DirEntry["kind"], size = 0, mtime = 0, path?: string): DirEntry {
@@ -257,5 +257,56 @@ describe("PaneStore row filter", () => {
     // apple.txt is filtered out, so it is no longer among the visible selection.
     p.setFilter("banana");
     expect(p.selectedEntries).toEqual([]);
+  });
+});
+
+describe("per-session remote panes (E8-S9)", () => {
+  it("gives each session its own independent pane state", () => {
+    const a = remotePaneFor("s1");
+    const b = remotePaneFor("s2");
+    expect(a).not.toBe(b);
+
+    a.startLoad("/srv/a");
+    a.setEntries([entry("one.txt", "file")]);
+    a.select("/one.txt", { ctrl: false, shift: false });
+    b.startLoad("/srv/b");
+    b.setEntries([entry("two.txt", "file")]);
+
+    // Switching tabs must restore what that host looked like, not leak across.
+    expect(a.path).toBe("/srv/a");
+    expect(b.path).toBe("/srv/b");
+    expect(a.sortedEntries.map((e) => e.name)).toEqual(["one.txt"]);
+    expect(b.sortedEntries.map((e) => e.name)).toEqual(["two.txt"]);
+    expect([...a.selected]).toEqual(["/one.txt"]);
+    expect(b.selected.size).toBe(0);
+  });
+
+  it("returns the same pane for the same session, so state survives a switch", () => {
+    const first = remotePaneFor("s3");
+    first.startLoad("/kept");
+    expect(remotePaneFor("s3")).toBe(first);
+    expect(remotePaneFor("s3").path).toBe("/kept");
+  });
+
+  it("hands out a parking pane when nothing is connected", () => {
+    const detached = remotePaneFor(null);
+    expect(detached.kind).toBe("remote");
+    expect(remotePaneFor(null)).toBe(detached);
+  });
+
+  it("frees a closed session's pane, and a later session of that id starts clean", () => {
+    remotePaneFor("s4").startLoad("/old");
+    const before = remotePaneCount();
+    forgetRemotePane("s4");
+    expect(remotePaneCount()).toBe(before - 1);
+    expect(remotePaneFor("s4").path).toBe("");
+  });
+
+  it("closing one session leaves the others untouched", () => {
+    const keep = remotePaneFor("s5");
+    keep.startLoad("/still/here");
+    remotePaneFor("s6").startLoad("/going");
+    forgetRemotePane("s6");
+    expect(keep.path).toBe("/still/here");
   });
 });

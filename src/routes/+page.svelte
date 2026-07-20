@@ -18,7 +18,7 @@
   import { logs } from "$lib/stores/logs.svelte";
   import { health, latencyLevel, sparkline } from "$lib/stores/health.svelte";
   import { edits } from "$lib/stores/edits.svelte";
-  import { localPane, remotePane } from "$lib/stores/panes.svelte";
+  import { forgetRemotePane, localPane, remotePaneFor } from "$lib/stores/panes.svelte";
   import { initSessionEvents, setLocalDirChangedHandler } from "$lib/ipc/events";
   import { respondPrompt } from "$lib/ipc/commands";
   import {
@@ -65,6 +65,7 @@
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
   import FilePane from "$lib/components/pane/FilePane.svelte";
+  import SessionTabs from "$lib/components/pane/SessionTabs.svelte";
   import TransferPanel from "$lib/components/transfers/TransferPanel.svelte";
   import Toasts from "$lib/components/common/Toasts.svelte";
   import ConnectDialog from "$lib/components/dialogs/ConnectDialog.svelte";
@@ -148,22 +149,31 @@
   }
 
   /**
-   * Load a remote directory into the remote pane (needs an active session).
+   * Load a remote directory into a session's remote pane.
    *
-   * @param path - the remote directory to list; a no-op when no session is active,
-   *   and failures land in the pane's error state.
+   * The pane is resolved from the session id **once, before the await**, and
+   * written through that reference afterwards. Reading the `remotePane` derived
+   * again after the listing returns would resolve to whichever tab is active by
+   * then — so switching hosts mid-listing would file one host's entries under
+   * another (E8-S9).
+   *
+   * @param path - the remote directory to list.
+   * @param sessionId - which session to load for; defaults to the active one.
+   *   A no-op when there is no such session, and failures land in that pane's
+   *   error state.
    */
-  async function loadRemote(path: string): Promise<void> {
-    const id = sessions.active?.info.id;
+  async function loadRemote(path: string, sessionId?: string): Promise<void> {
+    const id = sessionId ?? sessions.active?.info.id;
     if (!id) return;
-    remotePane.startLoad(path);
+    const pane = remotePaneFor(id);
+    pane.startLoad(path);
     logs.command(`cd "${path}"`);
     try {
       const entries = await listDir(id, path);
-      remotePane.setEntries(entries);
+      pane.setEntries(entries);
       logs.status(`Directory listing successful — ${entries.length} entries`, true);
     } catch (e) {
-      remotePane.setError(String(e));
+      pane.setError(String(e));
       logs.error(`list "${path}": ${String(e)}`);
     }
   }
@@ -240,17 +250,28 @@
     await runTransfers(dir, id, sourcePane.selectedEntries, targetPane.path);
   }
 
-  /** Toolbar Connect/Disconnect action. */
+  /** Toolbar Connect/Disconnect action: acts on the active session. */
   async function onConnect(): Promise<void> {
-    if (active) {
-      const id = active.info.id;
-      sessions.remove(id);
-      remotePane.reset();
-      ui.setDiffMode(false);
-      await disconnectCmd(id);
-    } else {
-      openConnect(null);
-    }
+    if (active) await disconnectSession(active.info.id);
+    else openConnect(null);
+  }
+
+  /**
+   * Disconnect one session, leaving the others running (E8-S9).
+   *
+   * Closing a host tab must not take the application down with it: only this
+   * session's pane state and health samples are dropped, and diff mode is only
+   * cleared if there is no longer a remote pane to compare against.
+   *
+   * @param id - the session to close.
+   */
+  async function disconnectSession(id: string): Promise<void> {
+    sessions.remove(id);
+    forgetRemotePane(id);
+    health.forget(id);
+    edits.removeForSession(id);
+    if (!sessions.activeId) ui.setDiffMode(false);
+    await disconnectCmd(id).catch(() => {});
   }
 
   /**
@@ -263,8 +284,23 @@
     sessions.add(info);
     logs.status(`Connected to ${info.host}:${info.port}`, true);
     logs.status(`Authenticated as ${info.username}`, true);
-    void loadRemote("/");
+    void loadRemote("/", info.id);
     ui.setActivePane("remote");
+  }
+
+  /**
+   * Switch to another host tab (E8-S9).
+   *
+   * A pane that has never been loaded (a tab opened while another was in front)
+   * gets its root listed on first view; a pane that already has a path is shown
+   * exactly as it was left, with no re-listing.
+   *
+   * @param id - the session to activate.
+   */
+  function selectSession(id: string): void {
+    sessions.setActive(id);
+    ui.setActivePane("remote");
+    if (remotePaneFor(id).path === "") void loadRemote("/", id);
   }
 
   /**
@@ -280,6 +316,12 @@
       openConnect(bookmark);
     }
   }
+
+  // One remote pane per session (E8-S9). Everything below reads `remotePane`
+  // exactly as it did when there was a single global one; what changed is that
+  // it now resolves through the active session, so switching tabs swaps the
+  // whole pane state — path, listing, selection, sort, expanded tree, filter.
+  let remotePane = $derived(remotePaneFor(sessions.activeId));
 
   let canUpload = $derived(connected && localPane.selected.size > 0);
   let canDownload = $derived(connected && remotePane.selected.size > 0);
@@ -689,10 +731,15 @@
    * @param hit - the chosen match.
    */
   async function revealHit(hit: SearchHit): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id) return;
+    // Same rule as loadRemote: bind to the session up front, so a tab switch
+    // during the listing cannot land the selection in another host's pane.
+    const pane = remotePaneFor(id);
     const dir = parentPath(hit.path) || "/";
-    if (dir !== remotePane.path) await loadRemote(dir);
+    if (dir !== pane.path) await loadRemote(dir, id);
     ui.setActivePane("remote");
-    remotePane.select(hit.path, { ctrl: false, shift: false });
+    pane.select(hit.path, { ctrl: false, shift: false });
   }
 
   /**
@@ -876,6 +923,13 @@
       {/snippet}
       {#snippet right()}
         {#if connected}
+          <SessionTabs
+            entries={sessions.entries}
+            activeId={sessions.activeId}
+            onSelect={selectSession}
+            onClose={(id) => void disconnectSession(id)}
+            onNew={() => openConnect(null)}
+          />
           <FilePane
             pane={remotePane}
             active={ui.activePane === "remote"}
@@ -904,6 +958,7 @@
   <TransferPanel />
   <StatusBar
     {connectionLabel}
+    sessions={sessions.entries}
     transferCount={transfers.activeCount}
     sessionId={active?.info.id ?? null}
     onCwd={onShellCwd}

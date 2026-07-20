@@ -20,26 +20,36 @@ import { logs } from "$lib/stores/logs.svelte";
 import { health } from "$lib/stores/health.svelte";
 import { edits } from "$lib/stores/edits.svelte";
 
-/** Handler invoked with decoded shell output (set by the terminal component). */
-let shellDataHandler: ((shellId: string, data: Uint8Array) => void) | null = null;
-/** Handler invoked when a shell ends (set by the terminal component). */
-let shellClosedHandler: ((shellId: string) => void) | null = null;
+/** One terminal's interest in the shell event stream. */
+interface ShellSubscriber {
+  onData: (shellId: string, data: Uint8Array) => void;
+  onClosed: (shellId: string) => void;
+}
 
 /**
- * Register the interactive-shell handlers.
+ * Every mounted terminal, each filtering the stream for its own shell.
+ *
+ * A **set**, not a single slot: with one session per tab (E8-S9) several
+ * terminals are mounted at once, and a single-handler design silently routed
+ * every shell's output to whichever terminal mounted last.
+ */
+const shellSubscribers = new Set<ShellSubscriber>();
+
+/**
+ * Subscribe a terminal to the interactive-shell event stream.
  *
  * The terminal component owns rendering, so it injects these rather than this
- * routing module reaching into the DOM.
+ * routing module reaching into the DOM. Events are delivered to every
+ * subscriber; each filters by the shell id it opened.
  *
- * @param onData - called with decoded output bytes, or null to clear.
- * @param onClosed - called when the shell ends, or null to clear.
+ * @param subscriber - the handlers to invoke for shell output and closure.
+ * @returns an unsubscribe function; call it on unmount.
  */
-export function setShellHandlers(
-  onData: ((shellId: string, data: Uint8Array) => void) | null,
-  onClosed: ((shellId: string) => void) | null,
-): void {
-  shellDataHandler = onData;
-  shellClosedHandler = onClosed;
+export function subscribeShell(subscriber: ShellSubscriber): () => void {
+  shellSubscribers.add(subscriber);
+  return () => {
+    shellSubscribers.delete(subscriber);
+  };
 }
 
 /** Handler invoked when the watched local directory changes (set by the shell). */
@@ -94,10 +104,13 @@ export function routeSessionEvent(event: SessionEvent): void {
       edits.remove(event.editId);
       break;
     case "shellData":
-      shellDataHandler?.(event.shellId, fromBase64(event.data));
+      {
+        const data = fromBase64(event.data);
+        for (const s of shellSubscribers) s.onData(event.shellId, data);
+      }
       break;
     case "shellClosed":
-      shellClosedHandler?.(event.shellId);
+      for (const s of shellSubscribers) s.onClosed(event.shellId);
       break;
     case "latencySample":
       health.record(event.sessionId, event.rttMs);

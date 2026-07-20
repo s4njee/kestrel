@@ -379,6 +379,67 @@ export class PaneStore {
   }
 }
 
-/** The two application panes. */
+/** The local pane. There is one, always, connected or not. */
 export const localPane = new PaneStore("local");
-export const remotePane = new PaneStore("remote");
+
+/**
+ * One remote pane per session (E8-S9).
+ *
+ * The engine has always keyed everything by session id; the single remote pane
+ * was the only thing making the app single-session. Each tab keeps its own path,
+ * listing, selection, sort, expanded tree, and filter, so switching tabs restores
+ * exactly what that host looked like rather than re-listing.
+ */
+// A plain Map, not a SvelteMap, and this is load-bearing rather than an
+// oversight. `remotePaneFor` is called from a `$derived` and inserts on first
+// use; inserting into a SvelteMap there mutates reactive state *during* a
+// derived computation, which Svelte rejects with `state_unsafe_mutation`
+// (verified, not assumed). Nothing needs the map itself to be reactive: the
+// reactive dependency is the active session id, and each PaneStore's own fields
+// are `$state`, so a re-render is driven by those.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity
+const remotePanes = new Map<string, PaneStore>();
+
+/**
+ * A parking pane used while nothing is connected.
+ *
+ * Callers read `remotePane.path` and friends unconditionally, so there must
+ * always be a pane object to read; this one stays empty and is never shown.
+ */
+const detachedRemotePane = new PaneStore("remote");
+
+/**
+ * The remote pane belonging to a session, created on first use.
+ *
+ * @param sessionId - the session, or null when nothing is connected.
+ * @returns that session's pane, or a permanently empty parking pane for null.
+ *   The same instance is returned for the same id, so pane state survives tab
+ *   switches.
+ */
+export function remotePaneFor(sessionId: string | null): PaneStore {
+  if (!sessionId) return detachedRemotePane;
+  let pane = remotePanes.get(sessionId);
+  if (!pane) {
+    pane = new PaneStore("remote");
+    remotePanes.set(sessionId, pane);
+  }
+  return pane;
+}
+
+/**
+ * Drop a session's remote pane (on disconnect).
+ *
+ * @param sessionId - the session whose pane should be forgotten.
+ */
+export function forgetRemotePane(sessionId: string): void {
+  remotePanes.delete(sessionId);
+}
+
+/**
+ * How many remote panes are currently retained.
+ *
+ * @returns the count, for tests asserting that closing a tab frees its state.
+ */
+export function remotePaneCount(): number {
+  return remotePanes.size;
+}

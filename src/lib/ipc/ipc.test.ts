@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { connect, type SessionInfo } from "./commands";
-import { routeSessionEvent, routeTransferEvent } from "./events";
+import { routeSessionEvent, routeTransferEvent, subscribeShell } from "./events";
 import { sessions } from "$lib/stores/sessions.svelte";
 import { prompts } from "$lib/stores/prompts.svelte";
 import { toasts } from "$lib/stores/toasts.svelte";
@@ -115,5 +115,66 @@ describe("routeSessionEvent", () => {
     });
     expect(prompts.hostKey?.promptId).toBe("p1");
     expect(prompts.hostKey?.status).toBe("unknown");
+  });
+});
+
+describe("shell event routing (E8-S9)", () => {
+  /**
+   * Emit one shell-output event.
+   *
+   * @param shellId - the shell the bytes came from.
+   * @param text - the payload, base64-encoded onto the wire as the backend does.
+   */
+  function emitOutput(shellId: string, text: string): void {
+    routeSessionEvent({ type: "shellData", shellId, data: btoa(text) } as never);
+  }
+
+  it("delivers each event to every mounted terminal, not just the last one", () => {
+    // With one session per tab, several terminals are mounted at once. A
+    // single-handler design silently routed every shell's output to whichever
+    // terminal mounted last, so only one tab's shell would have worked.
+    const first: string[] = [];
+    const second: string[] = [];
+    const offA = subscribeShell({
+      onData: (id) => first.push(id),
+      onClosed: () => {},
+    });
+    const offB = subscribeShell({
+      onData: (id) => second.push(id),
+      onClosed: () => {},
+    });
+
+    emitOutput("shell-a", "hello");
+    emitOutput("shell-b", "world");
+
+    expect(first).toEqual(["shell-a", "shell-b"]);
+    expect(second).toEqual(["shell-a", "shell-b"]);
+    offA();
+    offB();
+  });
+
+  it("decodes the payload once and hands the same bytes to each subscriber", () => {
+    const seen: Uint8Array[] = [];
+    const off = subscribeShell({ onData: (_id, data) => seen.push(data), onClosed: () => {} });
+    emitOutput("shell-a", "hi");
+    off();
+    expect(new TextDecoder().decode(seen[0])).toBe("hi");
+  });
+
+  it("stops delivering to an unsubscribed terminal", () => {
+    const seen: string[] = [];
+    const off = subscribeShell({ onData: (id) => seen.push(id), onClosed: () => {} });
+    emitOutput("shell-a", "x");
+    off();
+    emitOutput("shell-a", "y");
+    expect(seen).toEqual(["shell-a"]);
+  });
+
+  it("routes closure to every subscriber so each can check its own shell", () => {
+    const closed: string[] = [];
+    const off = subscribeShell({ onData: () => {}, onClosed: (id) => closed.push(id) });
+    routeSessionEvent({ type: "shellClosed", shellId: "shell-b" } as never);
+    off();
+    expect(closed).toEqual(["shell-b"]);
   });
 });

@@ -19,7 +19,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
   import { openShell, shellWrite, shellResize, closeShell } from "$lib/ipc/commands";
-  import { setShellHandlers } from "$lib/ipc/events";
+  import { subscribeShell } from "$lib/ipc/events";
   import { toasts } from "$lib/stores/toasts.svelte";
   import { CwdScanner } from "$lib/osc";
 
@@ -121,8 +121,8 @@
     });
 
     // Server output → the terminal, verbatim.
-    setShellHandlers(
-      (id, data) => {
+    const unsubscribe = subscribeShell({
+      onData: (id, data) => {
         if (id !== shellId) return;
         term?.write(data);
         // The same bytes carry the shell's cwd announcements; reading them here
@@ -130,13 +130,13 @@
         const cwd = cwdScanner.push(data);
         if (cwd !== null) onCwd?.(cwd);
       },
-      (id) => {
+      onClosed: (id) => {
         if (id !== shellId) return;
         shellId = null;
         cwdScanner.reset();
         term?.writeln("\r\n\x1b[2m[shell closed]\x1b[0m");
       },
-    );
+    });
 
     const observer = new ResizeObserver(() => refit());
     if (host) observer.observe(host);
@@ -147,7 +147,7 @@
 
     return () => {
       observer.disconnect();
-      setShellHandlers(null, null);
+      unsubscribe();
       teardown();
       term?.dispose();
       term = undefined;
