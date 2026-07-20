@@ -13,11 +13,13 @@
   - onNavigate: (path) => void   — called to change directory.
   - onToggleExpand?: (entry) => void — expand/collapse a directory in place.
   - emptyMessage?: string        — text shown when the listing is empty.
+  - marks?: Map<string, DiffMark> — diff glyphs by entry path (E8-S6).
 -->
 <script lang="ts">
   import type { PaneStore } from "$lib/stores/panes.svelte";
   import type { DirEntry } from "$lib/ipc/commands";
   import type { PaneKind } from "$lib/types";
+  import type { DiffMark } from "$lib/diff";
   import { parentPath } from "$lib/utils/path";
   import { formatBytes } from "$lib/utils/format";
   import Breadcrumbs from "./Breadcrumbs.svelte";
@@ -33,6 +35,7 @@
     onToggleExpand?: (entry: DirEntry) => void;
     emptyMessage?: string;
     banner?: string | null;
+    marks?: Map<string, DiffMark>;
   }
 
   let {
@@ -45,6 +48,7 @@
     onToggleExpand,
     emptyMessage = "empty",
     banner = null,
+    marks,
   }: Props = $props();
 
   let dragOver = $state(false);
@@ -169,6 +173,7 @@
         {onContextMenu}
         {onToggleExpand}
         onParent={hasParent && parent ? () => onNavigate(parent) : undefined}
+        {marks}
       />
       <p class="empty">{emptyMessage}</p>
     {:else}
@@ -184,6 +189,7 @@
         {onContextMenu}
         {onToggleExpand}
         onParent={hasParent && parent ? () => onNavigate(parent) : undefined}
+        {marks}
       />
     {/if}
   </div>

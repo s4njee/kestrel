@@ -46,6 +46,7 @@
   import { buildTransferRequests, dropDirection, uploadRequestsForPaths } from "$lib/transfer";
   import { resolveShortcut } from "$lib/keymap";
   import { buildCommands } from "$lib/palette";
+  import { diffPanes, differingEntries } from "$lib/diff";
   import { toasts } from "$lib/stores/toasts.svelte";
   import { parentPath, joinPath } from "$lib/utils/path";
   import { formatRate } from "$lib/utils/format";
@@ -242,6 +243,7 @@
       const id = active.info.id;
       sessions.remove(id);
       remotePane.reset();
+      ui.setDiffMode(false);
       await disconnectCmd(id);
     } else {
       openConnect(null);
@@ -325,6 +327,38 @@
       toasts.error(`Could not queue transfer: ${String(e)}`);
     }
     if (any) ui.setTransferPanelExpanded(true);
+  }
+
+  // ---- Pane diff mode (E8-S6) ----------------------------------------------
+
+  // Only meaningful with a remote pane to compare against, and recomputed from
+  // whatever is currently visible — expanding a folder deepens the comparison.
+  let diffActive = $derived(ui.diffMode && connected);
+  let paneDiff = $derived(diffActive ? diffPanes(localPane.rows, remotePane.rows) : null);
+
+  /**
+   * Transfer the active pane's differences to the other pane.
+   *
+   * Sends the entries {@link differingEntries} selects — present only here, or
+   * present on both sides with different sizes. Timestamp-only and nested rows
+   * are deliberately excluded; see the note in `$lib/diff`.
+   */
+  async function transferDifferences(): Promise<void> {
+    const id = sessions.active?.info.id;
+    if (!id || !paneDiff || !remotePane.path) return;
+    const from = ui.activePane;
+    const rows = from === "local" ? localPane.rows : remotePane.rows;
+    const entries = differingEntries(rows, from === "local" ? paneDiff.local : paneDiff.remote);
+    if (entries.length === 0) {
+      toasts.info("No differences to transfer at this level.");
+      return;
+    }
+    await runTransfers(
+      from === "local" ? "upload" : "download",
+      id,
+      entries,
+      from === "local" ? remotePane.path : localPane.path,
+    );
   }
 
   // File-operation dialog/menu state.
@@ -685,6 +719,9 @@
       onNewFolder: () => startNewFolder(ui.activePane),
       bookmarks: bookmarks.items,
       onConnectBookmark: (b) => void connectFromBookmark(b),
+      diffMode: diffActive,
+      onToggleDiff: () => ui.toggleDiffMode(),
+      onTransferDifferences: () => void transferDifferences(),
     });
   }
 
@@ -763,6 +800,8 @@
     onRefresh={refreshActive}
     onQueue={() => ui.toggleTransferPanel()}
     onSettings={() => (showSettings = true)}
+    diffMode={ui.diffMode}
+    onToggleDiff={() => ui.toggleDiffMode()}
     rtt={rttHud}
     throughput={throughputHud}
   />
@@ -778,6 +817,7 @@
           onDrop={(src) => onPaneDrop(src, "local")}
           onContextMenu={(entry, e) => openContextMenu("local", entry, e)}
           onToggleExpand={(entry) => void toggleExpand("local", entry)}
+          marks={paneDiff?.local}
         />
       {/snippet}
       {#snippet right()}
@@ -792,6 +832,7 @@
             onContextMenu={(entry, e) => openContextMenu("remote", entry, e)}
             onToggleExpand={(entry) => void toggleExpand("remote", entry)}
             banner={remoteBanner}
+            marks={paneDiff?.remote}
           />
         {:else}
           <section class="bookmark-pane" aria-label="remote pane">

@@ -44,6 +44,9 @@ function deps(over: Partial<PaletteDeps> = {}): PaletteDeps {
     onNewFolder: vi.fn(),
     bookmarks: [],
     onConnectBookmark: vi.fn(),
+    diffMode: false,
+    onToggleDiff: vi.fn(),
+    onTransferDifferences: vi.fn(),
     ...over,
   };
 }
@@ -134,6 +137,23 @@ describe("buildCommands", () => {
     expect(entry!.hint).toBe("deploy@stage.example.com");
     entry!.run();
     expect(onConnectBookmark).toHaveBeenCalledWith(b);
+  });
+
+  it("offers diff mode only while connected", () => {
+    const offline = new Set(buildCommands(deps({ connected: false })).map((c) => c.id));
+    const online = new Set(buildCommands(deps({ connected: true })).map((c) => c.id));
+    expect(offline.has("diff")).toBe(false);
+    expect(online.has("diff")).toBe(true);
+  });
+
+  it("offers 'transfer differences' only once the marks are on screen", () => {
+    const off = buildCommands(deps({ diffMode: false }));
+    const on = buildCommands(deps({ diffMode: true }));
+    expect(off.some((c) => c.id === "transferDifferences")).toBe(false);
+    expect(on.some((c) => c.id === "transferDifferences")).toBe(true);
+    // The toggle's own label flips so the palette never offers "compare" twice.
+    expect(off.find((c) => c.id === "diff")!.label).toContain("compare");
+    expect(on.find((c) => c.id === "diff")!.label).toContain("hide");
   });
 
   it("wires each action id to its handler", () => {

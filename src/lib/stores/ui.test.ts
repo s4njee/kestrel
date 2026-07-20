@@ -80,3 +80,21 @@ describe("ui store follow-shell-cwd", () => {
     expect(window.localStorage.getItem("sftpapp.followShellCwd")).toBe(String(before));
   });
 });
+
+describe("ui store diff mode", () => {
+  it("defaults to off, toggles, and is settable", () => {
+    ui.setDiffMode(false);
+    expect(ui.diffMode).toBe(false);
+    ui.toggleDiffMode();
+    expect(ui.diffMode).toBe(true);
+    ui.setDiffMode(false);
+    expect(ui.diffMode).toBe(false);
+  });
+
+  it("is not persisted — it belongs to the pair of directories on screen", () => {
+    ui.setDiffMode(true);
+    const keys = Object.keys(window.localStorage);
+    expect(keys.some((k) => k.toLowerCase().includes("diff"))).toBe(false);
+    ui.setDiffMode(false);
+  });
+});

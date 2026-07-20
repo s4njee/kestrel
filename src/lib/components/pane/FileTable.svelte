@@ -19,12 +19,15 @@
   - onOpen: (entry) => void              — double-click (navigate/open).
   - onToggleExpand?: (entry) => void     — a directory's label was clicked.
   - onParent?: () => void                — navigate up (renders the `..` row).
+  - marks?: Map<string, DiffMark>        — diff glyphs by entry path (E8-S6);
+                                           omitted/undefined = diff mode is off.
 -->
 <script lang="ts">
   import type { SvelteSet } from "svelte/reactivity";
   import type { DirEntry } from "$lib/ipc/commands";
   import type { PaneKind } from "$lib/types";
   import type { PaneRow, SortKey } from "$lib/stores/panes.svelte";
+  import { DIFF_GLYPHS, type DiffMark } from "$lib/diff";
   import { formatBytes, formatMtime } from "$lib/utils/format";
 
   interface Props {
@@ -39,6 +42,7 @@
     onContextMenu?: (entry: DirEntry, event: MouseEvent) => void;
     onToggleExpand?: (entry: DirEntry) => void;
     onParent?: () => void;
+    marks?: Map<string, DiffMark>;
   }
 
   let {
@@ -53,6 +57,7 @@
     onContextMenu,
     onToggleExpand,
     onParent,
+    marks,
   }: Props = $props();
 
   /**
@@ -179,6 +184,14 @@
     scrollTop = (event.currentTarget as HTMLDivElement).scrollTop;
   }
 
+  /** Human-readable meaning of each diff mark, used as the cell's tooltip. */
+  const MARK_TITLES: Record<DiffMark, string> = {
+    same: "same on both sides",
+    differs: "sizes differ",
+    timestamp: "same size, different modification time",
+    only: "not present in the other pane",
+  };
+
   /**
    * The sort-direction arrow to show on a column header.
    *
@@ -191,8 +204,9 @@
   }
 </script>
 
-<div class="table">
+<div class="table" class:diff={marks !== undefined}>
   <div class="head">
+    {#if marks}<span class="col-diff" title="Comparison with the other pane">Δ</span>{/if}
     <button class="col-perms" onclick={() => onSort("permissions")}
       >Perms{sortArrow("permissions")}</button
     >
@@ -204,6 +218,7 @@
   <div class="viewport" bind:clientHeight={viewportHeight} onscroll={onScroll}>
     {#if onParent}
       <button type="button" class="row up" style:height="{ROW}px" ondblclick={() => onParent?.()}>
+        {#if marks}<span class="col-diff"></span>{/if}
         <span class="col-perms"></span>
         <span class="col-name"><span class="icon">↰</span>..</span>
         <span class="col-size"></span>
@@ -229,6 +244,16 @@
             ondragstart={(e) => onDragStart(row.entry, e)}
             oncontextmenu={(e) => onRowContextMenu(row.entry, e)}
           >
+            {#if marks}
+              {@const mark = marks.get(row.entry.path)}
+              <span
+                class="col-diff"
+                data-mark={mark}
+                title={mark ? MARK_TITLES[mark] : undefined}
+                aria-label={mark ? MARK_TITLES[mark] : undefined}
+                >{mark ? DIFF_GLYPHS[mark] : ""}</span
+              >
+            {/if}
             <span class="col-perms">{permString(row.entry.permissions, row.entry.kind)}</span>
             <span class="col-name" style:padding-left="{row.depth * INDENT}px">
               <span
@@ -368,5 +393,31 @@
   }
   .row .col-name {
     color: inherit;
+  }
+
+  /* Diff mode (E8-S6) inserts one narrow glyph column ahead of Perms. The
+     template lives here rather than on the elements so the head and the rows
+     can never drift apart. */
+  .table.diff .head,
+  .table.diff .row {
+    grid-template-columns: 18px 96px 1fr 74px 148px;
+  }
+  .col-diff {
+    text-align: center;
+    color: var(--dim);
+  }
+  .head .col-diff {
+    padding: 4px 0;
+    font-size: 10.5px;
+  }
+  /* `=` and `~` are the quiet cases: a matching pair, or a timestamp difference
+     that is usually just the trace of an earlier copy. Only a real content
+     difference and an entry missing from the other side earn any emphasis, and
+     only `+` gets the accent — the sparse-accent rule. */
+  .col-diff[data-mark="differs"] {
+    color: var(--warn);
+  }
+  .col-diff[data-mark="only"] {
+    color: var(--accent);
   }
 </style>

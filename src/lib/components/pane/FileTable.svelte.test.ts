@@ -7,6 +7,7 @@ import { SvelteSet } from "svelte/reactivity";
 import FileTable from "./FileTable.svelte";
 import type { PaneRow } from "$lib/stores/panes.svelte";
 import type { DirEntry } from "$lib/ipc/commands";
+import type { DiffMark } from "$lib/diff";
 
 function entry(name: string, kind: DirEntry["kind"] = "file", path?: string): DirEntry {
   return {
@@ -146,5 +147,56 @@ describe("FileTable", () => {
     await fireEvent.click(glyph, { detail: 1 });
     expect(props.onToggleExpand).not.toHaveBeenCalled();
     expect(props.onSelect).toHaveBeenCalled();
+  });
+});
+
+describe("FileTable diff marks (E8-S6)", () => {
+  /**
+   * Render the table with diff marks applied.
+   *
+   * @param marks - mark per entry path.
+   * @returns the rendered props.
+   */
+  function renderWithMarks(marks: Map<string, DiffMark>) {
+    const props = {
+      ...baseProps(),
+      rows: [row(entry("a.txt")), row(entry("b.txt")), row(entry("c.txt"))],
+      marks,
+    };
+    render(FileTable, { props });
+    return props;
+  }
+
+  it("renders one glyph per mark, driven purely by the computed mark", () => {
+    renderWithMarks(
+      new Map<string, DiffMark>([
+        ["/a.txt", "same"],
+        ["/b.txt", "differs"],
+        ["/c.txt", "only"],
+      ]),
+    );
+    const cells = document.querySelectorAll(".row .col-diff");
+    expect([...cells].map((c) => c.textContent)).toEqual(["=", "≠", "+"]);
+    expect([...cells].map((c) => c.getAttribute("data-mark"))).toEqual(["same", "differs", "only"]);
+  });
+
+  it("labels each glyph so the meaning is not colour-only", () => {
+    renderWithMarks(new Map<string, DiffMark>([["/a.txt", "timestamp"]]));
+    const cell = document.querySelector('.row .col-diff[data-mark="timestamp"]')!;
+    expect(cell.getAttribute("title")).toMatch(/modification time/i);
+    expect(cell.getAttribute("aria-label")).toMatch(/modification time/i);
+  });
+
+  it("adds no diff column at all when marks are absent", () => {
+    render(FileTable, { props: baseProps() });
+    expect(document.querySelectorAll(".col-diff")).toHaveLength(0);
+    expect(document.querySelector(".table")!.classList.contains("diff")).toBe(false);
+  });
+
+  it("leaves a row blank rather than guessing when its mark is missing", () => {
+    renderWithMarks(new Map<string, DiffMark>([["/a.txt", "same"]]));
+    const cells = document.querySelectorAll(".row .col-diff");
+    expect(cells[1].textContent).toBe("");
+    expect(cells[1].hasAttribute("data-mark")).toBe(false);
   });
 });

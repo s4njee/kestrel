@@ -98,6 +98,12 @@ export interface PaletteDeps {
   bookmarks: Bookmark[];
   /** Connect using a bookmark. */
   onConnectBookmark: (bookmark: Bookmark) => void;
+  /** Whether pane diff marks are currently shown (E8-S6). */
+  diffMode: boolean;
+  /** Turn the pane diff marks on or off. */
+  onToggleDiff: () => void;
+  /** Transfer the active pane's differences to the other pane. */
+  onTransferDifferences: () => void;
 }
 
 /**
@@ -153,6 +159,27 @@ export function buildCommands(deps: PaletteDeps): PaletteCommand[] {
     { id: "rename", label: "rename selected…", hint: "f2", run: deps.actions.rename },
     { id: "delete", label: "delete selected…", hint: "del", run: deps.actions.delete },
     { id: "newFolder", label: "new folder…", run: deps.onNewFolder },
+  );
+
+  // Diff mode compares the two panes, so it needs a remote pane to compare with.
+  if (deps.connected) {
+    commands.push({
+      id: "diff",
+      label: deps.diffMode ? "hide pane differences" : "compare panes (diff mode)",
+      run: deps.onToggleDiff,
+    });
+    // "Transfer the differences" is only offered while the marks are actually on
+    // screen: without them it names a set the user has not been shown.
+    if (deps.diffMode) {
+      commands.push({
+        id: "transferDifferences",
+        label: "transfer differences to the other pane",
+        run: deps.onTransferDifferences,
+      });
+    }
+  }
+
+  commands.push(
     { id: "queue", label: "toggle transfer queue", run: deps.onQueue },
     { id: "settings", label: "settings…", run: deps.onSettings },
   );

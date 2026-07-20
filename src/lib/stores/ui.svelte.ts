@@ -102,6 +102,7 @@ class UiStore {
   #splitRatio = $state(loadRatio());
   #consoleHeight = $state(loadConsoleHeight());
   #followShellCwd = $state(loadFollowCwd());
+  #diffMode = $state(false);
   #activePane = $state<PaneKind>("local");
   #transferPanelExpanded = $state(false);
 
@@ -158,6 +159,34 @@ class UiStore {
   toggleFollowShellCwd(): void {
     this.#followShellCwd = !this.#followShellCwd;
     storage()?.setItem(FOLLOW_KEY, String(this.#followShellCwd));
+  }
+
+  /**
+   * Whether both panes are marked up with comparison glyphs (E8-S6).
+   *
+   * Deliberately **not** persisted, unlike the other toggles here: diff mode is
+   * an inspection mode for a particular pair of directories, so restoring it on
+   * launch would decorate two unrelated panes with marks the user never asked
+   * for. It also turns itself off on disconnect, since one side is then gone.
+   *
+   * @returns true when diff marks should be shown; false initially.
+   */
+  get diffMode(): boolean {
+    return this.#diffMode;
+  }
+
+  /** Toggle the pane diff marks. */
+  toggleDiffMode(): void {
+    this.#diffMode = !this.#diffMode;
+  }
+
+  /**
+   * Force diff mode on or off (used to clear it on disconnect).
+   *
+   * @param enabled - the desired state.
+   */
+  setDiffMode(enabled: boolean): void {
+    this.#diffMode = enabled;
   }
 
   /**

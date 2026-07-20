@@ -3,7 +3,7 @@
 
   The single command bar at the top of the shell: the `kestrel://` scheme, the
   active host, a session-detail chip, and the text action links
-  ([connect]/[disconnect] [↑up] [↓down] [refresh] [queue] [settings]) plus a
+  ([connect]/[disconnect] [↑up] [↓down] [refresh] [diff] [queue] [settings]) plus a
   live-connection pill. Actions invoke optional callbacks; transfer actions are
   disabled until a session exists. No IPC here.
 
@@ -13,6 +13,8 @@
   - meta?: string               — session-detail chip (e.g. "sftp · key").
   - editSessions?: EditSession[] — managed remote files open in local editors.
   - canUpload/canDownload?: boolean — enable the transfer links.
+  - diffMode?: boolean          — whether pane diff marks are on (E8-S6); the
+    [diff] toggle only renders while connected, since it needs two trees.
   - onConnect/onUpload/onDownload/onRefresh/onQueue/onSettings?: () => void
   - rtt?: { spark, ms, level } | null — health HUD: latency sparkline + latest
     round trip, tinted by level ("good" | "warn" | "bad").
@@ -28,6 +30,8 @@
     meta?: string;
     canUpload?: boolean;
     canDownload?: boolean;
+    diffMode?: boolean;
+    onToggleDiff?: () => void;
     editSessions?: EditSession[];
     onCloseEdit?: (id: string) => void;
     onConnect?: () => void;
@@ -46,6 +50,8 @@
     meta = "sftp",
     canUpload = false,
     canDownload = false,
+    diffMode = false,
+    onToggleDiff,
     editSessions = [],
     onCloseEdit,
     onConnect,
@@ -71,6 +77,15 @@
     <button class="link" disabled={!canUpload} onclick={() => onUpload?.()}>[↑up]</button>
     <button class="link" disabled={!canDownload} onclick={() => onDownload?.()}>[↓down]</button>
     <button class="link" onclick={() => onRefresh?.()}>[refresh]</button>
+    {#if connected}
+      <button
+        class="link"
+        class:on={diffMode}
+        aria-pressed={diffMode}
+        title="Mark how the two panes' trees compare"
+        onclick={() => onToggleDiff?.()}>[{diffMode ? "✓" : ""}diff]</button
+      >
+    {/if}
     <button class="link" onclick={() => onQueue?.()}>[queue]</button>
     <button class="link" onclick={() => onSettings?.()}>[settings]</button>
     {#if editSessions.length > 0}
@@ -127,6 +142,10 @@
     font-size: 12px;
   }
   .link:hover:not(:disabled) {
+    color: var(--accent);
+  }
+  /* The active toggle is the one place a text link earns the accent. */
+  .link.on {
     color: var(--accent);
   }
   .link:disabled {
