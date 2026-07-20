@@ -15,12 +15,22 @@ class PromptsStore {
   #hostKey = $state<HostKeyPrompt | null>(null);
   #auth = $state<AuthPrompt | null>(null);
 
-  /** The pending host-key prompt, or null when none is awaiting a decision. */
+  /**
+   * The pending host-key prompt, or null when none is awaiting a decision.
+   *
+   * @returns the prompt event last passed to setHostKeyPrompt, or null before any prompt
+   *   arrives and after clearHostKey.
+   */
   get hostKey(): HostKeyPrompt | null {
     return this.#hostKey;
   }
 
-  /** The pending keyboard-interactive auth prompt, or null. */
+  /**
+   * The pending keyboard-interactive auth prompt, or null.
+   *
+   * @returns the challenge last passed to setAuthPrompt, or null before any prompt arrives
+   *   and after clearAuth.
+   */
   get auth(): AuthPrompt | null {
     return this.#auth;
   }

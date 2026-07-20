@@ -23,7 +23,12 @@ class LogsStore {
   #lines = $state<LogLine[]>([]);
   #nextId = 0;
 
-  /** The retained log lines, oldest first. */
+  /**
+   * The retained log lines, oldest first.
+   *
+   * @returns the live reactive array (not a copy); empty until the first push, and
+   *   capped at MAX_LINES with older lines dropped.
+   */
   get lines(): LogLine[] {
     return this.#lines;
   }
@@ -41,22 +46,39 @@ class LogsStore {
     this.#lines = next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
   }
 
-  /** Append a `Status:` line. */
+  /**
+   * Append a `Status:` line.
+   *
+   * @param text - the message body.
+   * @param ok - true to use the success ("ok") styling; defaults to false for neutral "info".
+   */
   status(text: string, ok = false): void {
     this.push("Status:", ok ? "ok" : "info", text);
   }
 
-  /** Append a `Command:` line. */
+  /**
+   * Append a `Command:` line.
+   *
+   * @param text - the command text to display.
+   */
   command(text: string): void {
     this.push("Command:", "cmd", text);
   }
 
-  /** Append a `Response:` line. */
+  /**
+   * Append a `Response:` line.
+   *
+   * @param text - the server response text to display.
+   */
   response(text: string): void {
     this.push("Response:", "resp", text);
   }
 
-  /** Append an `Error:` line. */
+  /**
+   * Append an `Error:` line.
+   *
+   * @param text - the error message to display.
+   */
   error(text: string): void {
     this.push("Error:", "err", text);
   }

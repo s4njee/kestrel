@@ -12,12 +12,21 @@ export type Conflict = Extract<TransferEvent, { type: "conflict" }>;
 class ConflictsStore {
   #queue = $state<Conflict[]>([]);
 
-  /** The conflict currently awaiting a decision, or null. */
+  /**
+   * The conflict currently awaiting a decision, or null.
+   *
+   * @returns the head of the queue (the oldest unresolved conflict), or null when nothing
+   *   is pending.
+   */
   get current(): Conflict | null {
     return this.#queue[0] ?? null;
   }
 
-  /** Number of pending conflicts. */
+  /**
+   * Number of pending conflicts.
+   *
+   * @returns the queue length; 0 once every conflict has been resolved or cleared.
+   */
   get count(): number {
     return this.#queue.length;
   }

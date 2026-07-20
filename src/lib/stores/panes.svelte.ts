@@ -88,26 +88,42 @@ export class PaneStore {
     this.kind = kind;
   }
 
+  /** @returns the pane's current directory path; "" before the first load and after a reset. */
   get path(): string {
     return this.#path;
   }
+  /** @returns true while a root listing is being fetched. */
   get loading(): boolean {
     return this.#loading;
   }
+  /** @returns the last load failure message, or null when the pane loaded cleanly. */
   get error(): string | null {
     return this.#error;
   }
+  /** @returns the active sort column; "name" until {@link setSort} changes it. */
   get sortKey(): SortKey {
     return this.#sortKey;
   }
+  /** @returns true when the sort is ascending, which is the initial direction. */
   get sortAsc(): boolean {
     return this.#sortAsc;
   }
+  /**
+   * The selected entry paths (not names — a flattened tree can repeat names).
+   *
+   * @returns the live selection set, empty when nothing is selected. Selection
+   *   changes replace the set wholesale, so callers must not cache the reference.
+   */
   get selected(): SvelteSet<string> {
     return this.#selected;
   }
 
-  /** The live filter query, or null while the filter bar is closed. */
+  /**
+   * The live filter query, or null while the filter bar is closed.
+   *
+   * @returns the raw, untrimmed query text; "" when the bar is open but empty,
+   *   and null when it is closed.
+   */
   get filter(): string | null {
     return this.#filter;
   }
@@ -149,6 +165,8 @@ export class PaneStore {
    * The root listing in the current sort order (directories first). Hidden files
    * are omitted unless the "show hidden files" setting is on. Does not include
    * expanded children — see {@link rows}.
+   *
+   * @returns a freshly built array on every read; empty before the first load.
    */
   get sortedEntries(): DirEntry[] {
     return this.#ordered(this.#entries);
@@ -162,6 +180,12 @@ export class PaneStore {
    */
   get rows(): PaneRow[] {
     const out: PaneRow[] = [];
+    /**
+     * Append one level of entries to `out`, recursing into expanded folders.
+     *
+     * @param entries - the raw entries at this level; filtered and sorted here.
+     * @param depth - the nesting level to tag these rows with.
+     */
     const walk = (entries: DirEntry[], depth: number): void => {
       for (const entry of this.#ordered(entries)) {
         const expanded = this.#expanded.has(entry.path);
@@ -172,6 +196,7 @@ export class PaneStore {
           loading: this.#childLoading.has(entry.path),
         });
         if (entry.kind === "dir" && expanded) {
+          // Cached children; empty until they load.
           walk(this.#children.get(entry.path) ?? [], depth + 1);
         }
       }
@@ -249,7 +274,11 @@ export class PaneStore {
     this.#expanded.delete(path);
   }
 
-  /** Begin loading a new path (clears selection, error, and the expanded tree). */
+  /**
+   * Begin loading a new path (clears selection, error, filter, and the expanded tree).
+   *
+   * @param path - the directory this pane is navigating to.
+   */
   startLoad(path: string): void {
     this.#path = path;
     this.#loading = true;
@@ -267,13 +296,22 @@ export class PaneStore {
     this.#childLoading = new SvelteSet();
   }
 
-  /** Supply loaded entries and end the loading state. */
+  /**
+   * Supply loaded entries and end the loading state.
+   *
+   * @param entries - the root listing for the current path, unsorted and
+   *   unfiltered; ordering and hidden-file filtering happen on read.
+   */
   setEntries(entries: DirEntry[]): void {
     this.#entries = entries;
     this.#loading = false;
   }
 
-  /** Record a load failure. */
+  /**
+   * Record a load failure, discarding the entries and the expanded tree.
+   *
+   * @param message - the error text to surface in the pane.
+   */
   setError(message: string): void {
     this.#error = message;
     this.#loading = false;

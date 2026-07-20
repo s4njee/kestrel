@@ -22,7 +22,11 @@ class ToastsStore {
   #items = $state<Toast[]>([]);
   #nextId = 0;
 
-  /** The active toasts, oldest first. */
+  /**
+   * The active toasts, oldest first.
+   *
+   * @returns the live reactive array (not a copy); empty when nothing is showing.
+   */
   get items(): Toast[] {
     return this.#items;
   }
@@ -42,12 +46,22 @@ class ToastsStore {
     return id;
   }
 
-  /** Shorthand for an error toast. */
+  /**
+   * Shorthand for an error toast, shown with the default TTL.
+   *
+   * @param message - the text to display.
+   * @returns the new toast's id, usable with `dismiss`.
+   */
   error(message: string): number {
     return this.show(message, "error");
   }
 
-  /** Shorthand for an info toast. */
+  /**
+   * Shorthand for an info toast, shown with the default TTL.
+   *
+   * @param message - the text to display.
+   * @returns the new toast's id, usable with `dismiss`.
+   */
   info(message: string): number {
     return this.show(message, "info");
   }

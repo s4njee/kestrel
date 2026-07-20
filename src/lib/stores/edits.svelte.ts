@@ -8,12 +8,21 @@ import type { EditSession } from "$lib/ipc/commands";
 class EditsStore {
   #list = $state<EditSession[]>([]);
 
-  /** Every live edit session, oldest first. */
+  /**
+   * Every live edit session, oldest first.
+   *
+   * @returns the live reactive array in insertion order; empty before the first upsert or
+   *   replace. Treat it as read-only — mutate via upsert/replace/remove.
+   */
   get list(): EditSession[] {
     return this.#list;
   }
 
-  /** Number of live edit sessions. */
+  /**
+   * Number of live edit sessions.
+   *
+   * @returns the length of the tracked list; 0 when nothing is being edited.
+   */
   get count(): number {
     return this.#list.length;
   }

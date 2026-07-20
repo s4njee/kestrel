@@ -105,7 +105,12 @@ class UiStore {
   #activePane = $state<PaneKind>("local");
   #transferPanelExpanded = $state(false);
 
-  /** Left-pane fraction of the split (0..1). */
+  /**
+   * Left-pane fraction of the split (0..1).
+   *
+   * @returns the ratio restored from localStorage, clamped to [0.15, 0.85];
+   *   0.5 when nothing was stored.
+   */
   get splitRatio(): number {
     return this.#splitRatio;
   }
@@ -120,7 +125,12 @@ class UiStore {
     storage()?.setItem(RATIO_KEY, String(this.#splitRatio));
   }
 
-  /** Height of the bottom console/shell region, in pixels. */
+  /**
+   * Height of the bottom console/shell region, in pixels.
+   *
+   * @returns the height restored from localStorage, clamped to at least 64px and
+   *   at most 80% of the window; 360 when nothing was stored.
+   */
   get consoleHeight(): number {
     return this.#consoleHeight;
   }
@@ -135,7 +145,11 @@ class UiStore {
     storage()?.setItem(CONSOLE_KEY, String(this.#consoleHeight));
   }
 
-  /** Whether the remote pane follows the shell's working directory (E8-S5). */
+  /**
+   * Whether the remote pane follows the shell's working directory (E8-S5).
+   *
+   * @returns the persisted preference; false (opt-in) when nothing was stored.
+   */
   get followShellCwd(): boolean {
     return this.#followShellCwd;
   }
@@ -146,12 +160,22 @@ class UiStore {
     storage()?.setItem(FOLLOW_KEY, String(this.#followShellCwd));
   }
 
-  /** The pane that currently has keyboard focus / is the action target. */
+  /**
+   * The pane that currently has keyboard focus / is the action target.
+   *
+   * @returns "local" or "remote"; "local" until {@link setActivePane} is called.
+   *   Not persisted, so it resets on reload.
+   */
   get activePane(): PaneKind {
     return this.#activePane;
   }
 
-  /** Whether the bottom transfer dock is expanded. */
+  /**
+   * Whether the bottom transfer dock is expanded.
+   *
+   * @returns true when the dock is open; false initially and after reload, since
+   *   this state is not persisted.
+   */
   get transferPanelExpanded(): boolean {
     return this.#transferPanelExpanded;
   }

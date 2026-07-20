@@ -19,17 +19,32 @@ class SessionsStore {
   #entries = $state<SessionEntry[]>([]);
   #activeId = $state<string | null>(null);
 
-  /** All tracked sessions. */
+  /**
+   * All tracked sessions.
+   *
+   * @returns the live reactive array (not a copy), in the order they connected; empty
+   *   before the first successful connect.
+   */
   get entries(): SessionEntry[] {
     return this.#entries;
   }
 
-  /** The active session id, or null when none is selected. */
+  /**
+   * The active session id, or null when none is selected.
+   *
+   * @returns the id set by `add`/`setActive`; null before the first connect and after the
+   *   last session is removed.
+   */
   get activeId(): string | null {
     return this.#activeId;
   }
 
-  /** The active session entry, or null. */
+  /**
+   * The active session entry, or null.
+   *
+   * @returns the entry whose id matches `activeId`, or null when nothing is selected or the
+   *   id no longer matches a tracked session.
+   */
   get active(): SessionEntry | null {
     return this.#entries.find((e) => e.info.id === this.#activeId) ?? null;
   }

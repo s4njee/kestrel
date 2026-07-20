@@ -34,7 +34,12 @@ export interface TransferStateUpdate {
 class TransfersStore {
   #list = $state<Transfer[]>([]);
 
-  /** All tracked transfers, newest last. */
+  /**
+   * All tracked transfers, newest last.
+   *
+   * @returns the live reactive array in first-seen order; empty until the first state event
+   *   arrives. Treat it as read-only — mutate via applyState/setProgress/clearCompleted.
+   */
   get list(): Transfer[] {
     return this.#list;
   }
@@ -49,7 +54,12 @@ class TransfersStore {
     return state === "queued" || state === "running" || state === "paused";
   }
 
-  /** Number of active (queued/running/paused) transfers. */
+  /**
+   * Number of active (queued/running/paused) transfers.
+   *
+   * @returns the count of rows in a non-terminal state; 0 when the queue is empty or every
+   *   transfer has completed, failed, or been canceled.
+   */
   get activeCount(): number {
     return this.#list.filter((t) => TransfersStore.isActive(t.state)).length;
   }

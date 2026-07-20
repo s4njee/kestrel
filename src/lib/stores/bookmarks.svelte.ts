@@ -16,12 +16,22 @@ class BookmarksStore {
   #items = $state<Bookmark[]>([]);
   #loaded = $state(false);
 
-  /** All saved bookmarks. */
+  /**
+   * All saved bookmarks.
+   *
+   * @returns the live reactive array in backend order, with locally saved bookmarks appended;
+   *   empty until load() resolves. Treat it as read-only — mutate via load/save/remove.
+   */
   get items(): Bookmark[] {
     return this.#items;
   }
 
-  /** Whether the initial load has completed. */
+  /**
+   * Whether the initial load has completed.
+   *
+   * @returns false until the first load() resolves, then true for the rest of the app run;
+   *   never reset by save or remove.
+   */
   get loaded(): boolean {
     return this.#loaded;
   }

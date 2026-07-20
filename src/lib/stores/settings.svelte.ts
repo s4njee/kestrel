@@ -18,22 +18,38 @@ class SettingsStore {
   });
   #loaded = $state(false);
 
-  /** The current settings. */
+  /**
+   * The current settings.
+   *
+   * @returns the live reactive object; holds the built-in defaults until `load` completes.
+   */
   get value(): Settings {
     return this.#value;
   }
 
-  /** Whether the initial load has completed. */
+  /**
+   * Whether the initial load has completed.
+   *
+   * @returns false until `load` resolves; stays true thereafter, including across saves.
+   */
   get loaded(): boolean {
     return this.#loaded;
   }
 
-  /** Whether hidden (dot) files are shown in the panes. */
+  /**
+   * Whether hidden (dot) files are shown in the panes.
+   *
+   * @returns the current flag; false by default until `load` supplies the stored value.
+   */
   get showHidden(): boolean {
     return this.#value.showHidden;
   }
 
-  /** The directory the local pane should open on launch, if pinned. */
+  /**
+   * The directory the local pane should open on launch, if pinned.
+   *
+   * @returns the pinned path, or null when no directory is pinned (the default).
+   */
   get defaultLocalDir(): string | null {
     return this.#value.defaultLocalDir;
   }
