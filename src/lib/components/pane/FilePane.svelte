@@ -48,6 +48,8 @@
   }: Props = $props();
 
   let dragOver = $state(false);
+  /** The pane's root element, focused again when the filter bar closes. */
+  let sectionEl = $state<HTMLElement | null>(null);
 
   // Footer summary: entry count + total bytes across files.
   let entryCount = $derived(pane.sortedEntries.length);
@@ -93,6 +95,30 @@
       onDrop?.(source);
     }
   }
+
+  /**
+   * Close the filter bar, clear the query, and hand focus back to the pane.
+   */
+  function closeFilter(): void {
+    pane.setFilter(null);
+    sectionEl?.focus();
+  }
+
+  /**
+   * Filter-bar keys: Escape clears and closes; Enter keeps the filter and
+   * returns focus to the pane (so shortcuts work on the narrowed rows).
+   *
+   * @param event - the keydown event from the filter input.
+   */
+  function onFilterKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFilter();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      sectionEl?.focus();
+    }
+  }
 </script>
 
 <!-- tabindex={-1}: programmatically focusable (the command palette returns
@@ -100,6 +126,7 @@
      flags any tabindex on a noninteractive element, including -1. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <section
+  bind:this={sectionEl}
   class="pane"
   class:active
   class:drag-over={dragOver}
@@ -160,6 +187,26 @@
       />
     {/if}
   </div>
+
+  {#if pane.filter !== null}
+    <div class="filter-bar">
+      <span class="slash">/</span>
+      <input
+        id={`filter-input-${pane.kind}`}
+        value={pane.filter}
+        oninput={(e) => pane.setFilter(e.currentTarget.value)}
+        onkeydown={onFilterKeyDown}
+        aria-label={`Filter ${pane.kind} rows`}
+        placeholder="filter…"
+        spellcheck="false"
+        autocomplete="off"
+      />
+      <span class="matches">{pane.rows.length} match{pane.rows.length === 1 ? "" : "es"}</span>
+      <button class="clear" title="Clear filter" aria-label="Clear filter" onclick={closeFilter}>
+        [x]
+      </button>
+    </div>
+  {/if}
 
   <footer class="pane-foot">
     {entryCount}
@@ -231,6 +278,46 @@
     font-size: 12px;
     pointer-events: none;
     margin: 0;
+  }
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 12px;
+    background: var(--surface);
+    border-top: 1px solid var(--grid);
+    font-size: 12px;
+  }
+  .filter-bar .slash {
+    color: var(--accent);
+  }
+  .filter-bar input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: none;
+    border: none;
+    outline: none;
+    font-size: 12px;
+    color: var(--bright);
+  }
+  .filter-bar input::placeholder {
+    color: var(--dim);
+  }
+  .filter-bar .matches {
+    color: var(--dim);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .filter-bar .clear {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .filter-bar .clear:hover {
+    color: var(--danger);
   }
   .pane-foot {
     padding: 5px 12px;

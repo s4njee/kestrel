@@ -398,6 +398,17 @@ only hard dependency is E8-S1, the shared enabler.
     live edit sessions. Conflict-check the remote mtime before each re-upload.
   - Accept: engine/store tests for the watch→reupload loop (tempdir-driven);
     manual: edit in a real editor, saves appear on the server.
+- [x] **E8-S13 — Filter-as-you-type within a pane** (S) _(promoted from backlog B3)_
+  - Do: `/` opens a vim-style filter bar at the bottom of the active pane; typing
+    narrows the visible rows live (case-insensitive substring on the name),
+    composing with hidden-file filtering, sorting, and the expanded tree.
+    Expanded directories stay visible while filtered so their matching children
+    remain reachable. Escape clears and closes (focus returns to the pane);
+    Enter keeps the filter and returns focus. Navigation/refresh clears it.
+    Distinct from type-ahead _selection_ (E7-S11) and remote _search_ (E8-S7).
+  - Accept: store tests for narrowing/composition/clearing; keymap + palette
+    entries (the total-record check forces the palette one); component test
+    proves the bar renders, filters, and closes; full gate green.
 - [ ] **E8-S5 — Shell ↔ pane cwd sync** (M)
   - Do: when you `cd` in the [shell] tab, the remote pane can follow. Detect the
     shell's cwd via OSC 7 / OSC 1337 `CurrentDir=` escape sequences (parse in
@@ -591,6 +602,8 @@ lib/utils/{path,format}.ts
 ## Deviations
 
 Log of places where implementation diverged from the spec above. Append here as work proceeds.
+
+- **E8-S13 — filter-as-you-type** (promoted from backlog B3): `/` opens a vim-style filter bar at the bottom of the active pane; typing narrows rows live. Implemented inside `PaneStore.#ordered`, the single place that already applies hidden-file filtering and sorting, so the filter **composes for free** with sort order, the show-hidden setting, and the expanded tree at every depth. One judgement call: an **expanded directory stays visible even when its own name does not match**, because the flatten walk only recurses into visible rows — hiding a non-matching parent would make its matching children unreachable, which is the opposite of what filtering is for (covered by a test). `filter` is a real `ShortcutAction`, so the palette's total-record type check **forced** a palette entry — the guard built in E8-S8 caught it at compile time, exactly as designed. Escape clears + closes and returns focus to the pane; Enter keeps the filter and returns focus; navigation/refresh clears it (`startLoad`). `/` typed inside the bar does not re-trigger (the keymap's editable-target guard). Verified live in the browser as well as in tests: `/` opened the bar focused, a second `/` inside it did nothing, Escape closed it and `document.activeElement` was the local pane. 16 new tests (store narrowing/composition/expanded-parent/clearing/selection-visibility, keymap chord, component bar).
 
 - **E8-S12 — connection health HUD**: a per-session monitor task (`spawn_latency_monitor`, beside the supervisor and sharing its shutdown token) times a tiny `stat("/")` on the interactive channel and broadcasts `EngineEvent::LatencySample`; the topbar renders the active session's last 12 samples as a `▁▂▃` sparkline plus the latest ms next to `● live`, and the summed rate of running transfers appears while the queue is active. **One deviation from the story text:** it said to "piggyback on the existing keepalive cadence — no new traffic when idle", but russh does not expose keepalive round-trip timing, so a 5s stat probe is used instead (~one attribute packet each way; it doubles as an application-level liveness signal and stops with the session). The interval is settable (`Engine::set_latency_interval`) so the integration test runs at 50ms — it proves samples are emitted for the right session with sane loopback RTTs and that **disconnect stops the probe**. Colour respects the sparse-accent rule: "good" latency stays neutral muted; only warn/bad tint (amber/red); the sparkline itself stays dim. The HUD hides entirely until the first sample, verified in the preview (no Tauri → no samples → no `.rtt`/`.throughput` nodes).
 

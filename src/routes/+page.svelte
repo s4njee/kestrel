@@ -8,7 +8,7 @@
   Cmd/Ctrl+L focuses its path field.
 -->
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { sessions } from "$lib/stores/sessions.svelte";
   import { transfers } from "$lib/stores/transfers.svelte";
@@ -611,6 +611,17 @@
   }
 
   /**
+   * Open (or refocus) the filter bar in a pane and put the caret in it.
+   *
+   * @param kind - which pane to filter.
+   */
+  function openFilter(kind: PaneKind): void {
+    const pane = paneOf(kind);
+    if (pane.filter === null) pane.setFilter("");
+    void tick().then(() => document.getElementById(`filter-input-${kind}`)?.focus());
+  }
+
+  /**
    * Close the command palette and hand focus back to the active pane, so the
    * global shortcuts (which ignore keystrokes inside inputs) work immediately.
    */
@@ -646,6 +657,7 @@
         },
         delete: () => startDelete(ui.activePane),
         switchPane: () => ui.setActivePane(ui.activePane === "local" ? "remote" : "local"),
+        filter: () => openFilter(ui.activePane),
         // The palette does not list itself.
         palette: () => {},
       },
@@ -694,6 +706,10 @@
         event.preventDefault();
         if (showPalette) closePalette();
         else showPalette = true;
+        break;
+      case "filter":
+        event.preventDefault();
+        openFilter(kind);
         break;
       case "refresh":
         event.preventDefault();

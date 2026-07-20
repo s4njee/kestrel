@@ -11,6 +11,13 @@ describe("resolveShortcut", () => {
     expect(resolveShortcut({ key: "Tab" })).toBe("switchPane");
   });
 
+  it("maps / to the row filter", () => {
+    expect(resolveShortcut({ key: "/" })).toBe("filter");
+    // Not hijacked while typing (the editable-target guard).
+    const input = document.createElement("input");
+    expect(resolveShortcut({ key: "/", target: input })).toBeNull();
+  });
+
   it("maps Cmd/Ctrl+K to the command palette", () => {
     expect(resolveShortcut({ key: "k", metaKey: true })).toBe("palette");
     expect(resolveShortcut({ key: "k", ctrlKey: true })).toBe("palette");

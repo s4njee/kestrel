@@ -149,6 +149,7 @@ export function buildCommands(deps: PaletteDeps): PaletteCommand[] {
     { id: "refresh", label: "refresh active pane", hint: "cmd/ctrl+r", run: deps.actions.refresh },
     { id: "focusPath", label: "focus path field", hint: "cmd/ctrl+l", run: deps.actions.focusPath },
     { id: "switchPane", label: "switch pane", hint: "tab", run: deps.actions.switchPane },
+    { id: "filter", label: "filter rows…", hint: "/", run: deps.actions.filter },
     { id: "rename", label: "rename selected…", hint: "f2", run: deps.actions.rename },
     { id: "delete", label: "delete selected…", hint: "del", run: deps.actions.delete },
     { id: "newFolder", label: "new folder…", run: deps.onNewFolder },

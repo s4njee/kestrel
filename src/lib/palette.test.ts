@@ -33,6 +33,7 @@ function deps(over: Partial<PaletteDeps> = {}): PaletteDeps {
       delete: vi.fn(),
       switchPane: vi.fn(),
       palette: vi.fn(),
+      filter: vi.fn(),
     },
     connected: true,
     canUpload: true,
@@ -100,6 +101,7 @@ describe("buildCommands", () => {
       "rename",
       "delete",
       "switchPane",
+      "filter",
     ];
     for (const action of expected) {
       expect(ids.has(action), `missing palette entry for ${action}`).toBe(true);

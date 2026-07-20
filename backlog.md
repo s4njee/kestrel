@@ -7,8 +7,8 @@
 > (B-ids) that have no tasks.md story yet**. Promote a B-item by writing it up
 > as a proper story in tasks.md; on any conflict, tasks.md wins.
 >
-> Status snapshot: **56 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S4,
-> E8-S8, E8-S12 done), 17 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
+> Status snapshot: **57 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S4,
+> E8-S8, E8-S12–S13 done), 17 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
 
 ## 1 — Release blockers (maintainer-only, 🔒)
 
@@ -67,7 +67,6 @@ blocked. Every exec-based feature keeps a pure-SFTP fallback.
 | --- | --------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | B1  | **Classic Pro theme + theme switch**    | M    | Unfinished design scope: the handoff README specifies two user-switchable themes (`1a-classic-pro.html` is "Default" in the reference); only Terminal Grid was built. Tokens are already role-named, so this is a second CSS variable set behind a root `data-theme` — plus the 1a-only structural bits (site-manager sidebar, Host/User/Pass/Port quickconnect strip) |
 | B2  | File preview panel                      | M    | Space/side-panel preview for text (first N KB via existing `open_read`) and images; read-only, no full download for a peek                                                                                                                                                                                                                                             |
-| B3  | Filter-as-you-type within a pane        | S    | Narrows visible rows (distinct from E7-S11 type-ahead _selection_ and E8-S7 remote _search_)                                                                                                                                                                                                                                                                           |
 | B4  | Batch rename                            | M    | Rename a multi-selection with a pattern (`*.log` → `*.log.bak`, numbering); dry-run preview list before applying                                                                                                                                                                                                                                                       |
 | B5  | Properties dialog                       | S    | Per-entry details; directory sizes via `du -sh` over exec with SFTP-walk fallback; remote free space via `df` in the status area                                                                                                                                                                                                                                       |
 | B6  | Hide/show local pane (remote-only mode) | S    | Single-pane layout toggle for pure server administration                                                                                                                                                                                                                                                                                                               |

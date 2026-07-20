@@ -7,7 +7,15 @@
 
 /** An action a shortcut can trigger. */
 export type ShortcutAction =
-  "refresh" | "focusPath" | "download" | "upload" | "rename" | "delete" | "switchPane" | "palette";
+  | "refresh"
+  | "focusPath"
+  | "download"
+  | "upload"
+  | "rename"
+  | "delete"
+  | "switchPane"
+  | "palette"
+  | "filter";
 
 /** Minimal shape of the key event fields we consult (eases testing). */
 export interface KeyLike {
@@ -47,6 +55,8 @@ export function resolveShortcut(event: KeyLike): ShortcutAction | null {
       return "delete";
     case "Tab":
       return "switchPane";
+    case "/":
+      return "filter";
   }
 
   // Cmd (macOS) / Ctrl (elsewhere) shortcuts.

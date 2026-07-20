@@ -81,6 +81,8 @@ export class PaneStore {
   #expanded = $state<SvelteSet<string>>(new SvelteSet());
   /** Directory paths whose children are being fetched. */
   #childLoading = $state<SvelteSet<string>>(new SvelteSet());
+  /** Live row filter: null = bar closed, "" = open but empty (E8-S13). */
+  #filter = $state<string | null>(null);
 
   constructor(kind: PaneKind) {
     this.kind = kind;
@@ -105,6 +107,21 @@ export class PaneStore {
     return this.#selected;
   }
 
+  /** The live filter query, or null while the filter bar is closed. */
+  get filter(): string | null {
+    return this.#filter;
+  }
+
+  /**
+   * Set or clear the live row filter.
+   *
+   * @param query - the substring to narrow rows by; "" opens the bar without
+   *   narrowing; null closes it and shows everything.
+   */
+  setFilter(query: string | null): void {
+    this.#filter = query;
+  }
+
   /**
    * Filter hidden entries and apply the current sort to one level of entries.
    *
@@ -113,7 +130,16 @@ export class PaneStore {
    *   on, ordered by the active sort column and direction (dirs first).
    */
   #ordered(entries: DirEntry[]): DirEntry[] {
-    const visible = settings.showHidden ? entries : entries.filter((e) => !e.name.startsWith("."));
+    let visible = settings.showHidden ? entries : entries.filter((e) => !e.name.startsWith("."));
+    const query = this.#filter?.trim().toLowerCase();
+    if (query) {
+      // Expanded directories stay visible while filtered so their matching
+      // children remain reachable (the walk only recurses into visible rows).
+      visible = visible.filter(
+        (e) =>
+          e.name.toLowerCase().includes(query) || (e.kind === "dir" && this.#expanded.has(e.path)),
+      );
+    }
     const sorted = [...visible].sort((a, b) => compareEntries(a, b, this.#sortKey));
     if (!this.#sortAsc) sorted.reverse();
     return sorted;
@@ -228,6 +254,7 @@ export class PaneStore {
     this.#path = path;
     this.#loading = true;
     this.#error = null;
+    this.#filter = null;
     this.#selected = new SvelteSet();
     this.#anchor = null;
     this.#collapseTree();
@@ -305,6 +332,7 @@ export class PaneStore {
   reset(): void {
     this.#path = "";
     this.#entries = [];
+    this.#filter = null;
     this.#loading = false;
     this.#error = null;
     this.#selected = new SvelteSet();

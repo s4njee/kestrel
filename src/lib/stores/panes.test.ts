@@ -187,3 +187,75 @@ describe("PaneStore folder tree", () => {
     expect(p.rows).toHaveLength(5);
   });
 });
+
+describe("PaneStore row filter", () => {
+  it("is closed by default and narrows rows case-insensitively once set", () => {
+    const p = pane();
+    expect(p.filter).toBeNull();
+    expect(p.rows).toHaveLength(5);
+
+    p.setFilter("AN"); // matches banana.txt
+    expect(p.rows.map((r) => r.entry.name)).toEqual(["banana.txt"]);
+  });
+
+  it("an empty query opens the bar without narrowing", () => {
+    const p = pane();
+    p.setFilter("");
+    expect(p.filter).toBe("");
+    expect(p.rows).toHaveLength(5);
+  });
+
+  it("composes with sorting", () => {
+    const p = pane();
+    p.setFilter(".txt");
+    p.setSort("size");
+    expect(p.rows.map((r) => r.entry.name)).toEqual(["apple.txt", "cherry.txt", "banana.txt"]);
+  });
+
+  it("keeps an expanded directory visible so its matching children stay reachable", () => {
+    const p = pane();
+    p.setChildren("/adir", [
+      entry("target.log", "file", 1, 0, "/adir/target.log"),
+      entry("other.txt", "file", 1, 0, "/adir/other.txt"),
+    ]);
+    p.expand("/adir");
+    p.setFilter("target");
+
+    const shape = p.rows.map((r) => [r.entry.name, r.depth]);
+    // The parent survives (it is expanded) and only its matching child shows.
+    expect(shape).toEqual([
+      ["adir", 0],
+      ["target.log", 1],
+    ]);
+  });
+
+  it("hides a collapsed non-matching directory", () => {
+    const p = pane();
+    p.setFilter("banana");
+    expect(p.rows.map((r) => r.entry.name)).toEqual(["banana.txt"]);
+  });
+
+  it("clearing restores every row", () => {
+    const p = pane();
+    p.setFilter("banana");
+    p.setFilter(null);
+    expect(p.filter).toBeNull();
+    expect(p.rows).toHaveLength(5);
+  });
+
+  it("navigating clears the filter", () => {
+    const p = pane();
+    p.setFilter("banana");
+    p.startLoad("/elsewhere");
+    expect(p.filter).toBeNull();
+  });
+
+  it("selectedEntries only sees filtered-in rows", () => {
+    const p = pane();
+    p.select("/apple.txt", { ctrl: false, shift: false });
+    expect(p.selectedEntries.map((e) => e.name)).toEqual(["apple.txt"]);
+    // apple.txt is filtered out, so it is no longer among the visible selection.
+    p.setFilter("banana");
+    expect(p.selectedEntries).toEqual([]);
+  });
+});
