@@ -10,6 +10,8 @@
 
   Props:
   - sessionId: string | null — the session to run the shell on; null closes it.
+  - onCwd?: (cwd) => void    — the shell announced a working directory (OSC
+    7/1337), used by the remote pane's [follow] mode.
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
@@ -19,12 +21,18 @@
   import { openShell, shellWrite, shellResize, closeShell } from "$lib/ipc/commands";
   import { setShellHandlers } from "$lib/ipc/events";
   import { toasts } from "$lib/stores/toasts.svelte";
+  import { CwdScanner } from "$lib/osc";
 
   interface Props {
     sessionId: string | null;
+    /** Called when the shell announces a new working directory (OSC 7/1337). */
+    onCwd?: (cwd: string) => void;
   }
 
-  let { sessionId }: Props = $props();
+  let { sessionId, onCwd }: Props = $props();
+
+  /** Pulls cwd announcements out of the shell's output stream. */
+  const cwdScanner = new CwdScanner();
 
   /** The element xterm renders into. */
   let host = $state<HTMLDivElement | null>(null);
@@ -115,11 +123,17 @@
     // Server output → the terminal, verbatim.
     setShellHandlers(
       (id, data) => {
-        if (id === shellId) term?.write(data);
+        if (id !== shellId) return;
+        term?.write(data);
+        // The same bytes carry the shell's cwd announcements; reading them here
+        // costs one scan and needs no server-side configuration.
+        const cwd = cwdScanner.push(data);
+        if (cwd !== null) onCwd?.(cwd);
       },
       (id) => {
         if (id !== shellId) return;
         shellId = null;
+        cwdScanner.reset();
         term?.writeln("\r\n\x1b[2m[shell closed]\x1b[0m");
       },
     );

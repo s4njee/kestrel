@@ -13,6 +13,7 @@ const RATIO_KEY = "sftpapp.splitRatio";
 const MIN_RATIO = 0.15;
 const MAX_RATIO = 0.85;
 
+const FOLLOW_KEY = "sftpapp.followShellCwd";
 const CONSOLE_KEY = "sftpapp.consoleHeight";
 /** Default console height: 18 text lines plus the tab strip and padding. */
 const DEFAULT_CONSOLE_HEIGHT = 360;
@@ -86,10 +87,21 @@ function loadConsoleHeight(): number {
   return raw == null ? DEFAULT_CONSOLE_HEIGHT : clampConsoleHeight(Number.parseFloat(raw));
 }
 
+/**
+ * Read the persisted "follow shell cwd" preference.
+ *
+ * @returns true when the remote pane should follow the shell's directory;
+ *   defaults to false (opt-in) when unset or unavailable.
+ */
+function loadFollowCwd(): boolean {
+  return storage()?.getItem(FOLLOW_KEY) === "true";
+}
+
 /** Reactive singleton backing the application shell. */
 class UiStore {
   #splitRatio = $state(loadRatio());
   #consoleHeight = $state(loadConsoleHeight());
+  #followShellCwd = $state(loadFollowCwd());
   #activePane = $state<PaneKind>("local");
   #transferPanelExpanded = $state(false);
 
@@ -121,6 +133,17 @@ class UiStore {
   set consoleHeight(value: number) {
     this.#consoleHeight = clampConsoleHeight(value);
     storage()?.setItem(CONSOLE_KEY, String(this.#consoleHeight));
+  }
+
+  /** Whether the remote pane follows the shell's working directory (E8-S5). */
+  get followShellCwd(): boolean {
+    return this.#followShellCwd;
+  }
+
+  /** Toggle whether the remote pane follows the shell's directory. */
+  toggleFollowShellCwd(): void {
+    this.#followShellCwd = !this.#followShellCwd;
+    storage()?.setItem(FOLLOW_KEY, String(this.#followShellCwd));
   }
 
   /** The pane that currently has keyboard focus / is the action target. */

@@ -15,6 +15,9 @@
   observes its container.
 
   Props:
+  - onCwd?: (cwd) => void     — forwarded from Terminal: the shell announced a
+    working directory. The `[follow]` toggle beside the tabs decides whether the
+    shell drives the remote pane; the shell itself is never written to.
   - connectionLabel: string   — e.g. "not connected" or "user@host".
   - transferCount: number     — active transfers (shown on the log's prompt).
   - sessionId: string | null  — session the shell attaches to; null = no shell.
@@ -28,9 +31,10 @@
     connectionLabel: string;
     transferCount: number;
     sessionId: string | null;
+    onCwd?: (cwd: string) => void;
   }
 
-  let { connectionLabel, transferCount, sessionId }: Props = $props();
+  let { connectionLabel, transferCount, sessionId, onCwd }: Props = $props();
 
   /** Which tab is showing. */
   let tab = $state<"shell" | "log">("shell");
@@ -119,13 +123,23 @@
       [shell]
     </button>
     <button class="tab" class:active={tab === "log"} onclick={() => (tab = "log")}>[log]</button>
+    {#if sessionId}
+      <button
+        class="tab follow"
+        class:active={ui.followShellCwd}
+        title="Follow the shell's directory in the remote pane"
+        onclick={() => ui.toggleFollowShellCwd()}
+      >
+        [{ui.followShellCwd ? "✓" : ""}follow]
+      </button>
+    {/if}
     <span class="spacer"></span>
     {#if transferCount > 0}<span class="jobs">{transferCount} jobs</span>{/if}
   </div>
 
   <div class="pane" class:hidden={tab !== "shell"}>
     {#if sessionId}
-      <Terminal {sessionId} />
+      <Terminal {sessionId} {onCwd} />
     {:else}
       <p class="hint">not connected — use [connect] to open a shell</p>
     {/if}

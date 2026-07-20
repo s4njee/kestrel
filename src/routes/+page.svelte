@@ -622,6 +622,21 @@
   }
 
   /**
+   * Follow the shell's working directory in the remote pane.
+   *
+   * Only acts when the user has [follow] on and the pane is not already there,
+   * so an announcement after every prompt does not re-list the same directory.
+   *
+   * @param cwd - the directory the shell just announced.
+   */
+  function onShellCwd(cwd: string): void {
+    if (!ui.followShellCwd) return;
+    if (!sessions.active) return;
+    if (remotePane.path === cwd) return;
+    void loadRemote(cwd);
+  }
+
+  /**
    * Close the command palette and hand focus back to the active pane, so the
    * global shortcuts (which ignore keystrokes inside inputs) work immediately.
    */
@@ -796,6 +811,7 @@
     {connectionLabel}
     transferCount={transfers.activeCount}
     sessionId={active?.info.id ?? null}
+    onCwd={onShellCwd}
   />
 </div>
 

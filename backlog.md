@@ -7,8 +7,8 @@
 > (B-ids) that have no tasks.md story yet**. Promote a B-item by writing it up
 > as a proper story in tasks.md; on any conflict, tasks.md wins.
 >
-> Status snapshot: **57 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S4,
-> E8-S8, E8-S12–S13 done), 17 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
+> Status snapshot: **58 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S5,
+> E8-S8, E8-S12–S13 done), 16 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
 
 ## 1 — Release blockers (maintainer-only, 🔒)
 
@@ -54,7 +54,6 @@ blocked. Every exec-based feature keeps a pure-SFTP fallback.
 | E8-S12 | Connection health HUD (latency sparkline by `● live`)       | S    | Medium                                                     |
 | E8-S10 | Frecency path jump (zoxide for remote dirs)                 | S    | Medium                                                     |
 | E8-S11 | Per-bookmark on-connect snippets (visible, opt-in)          | S    | Medium                                                     |
-| E8-S5  | Shell ↔ pane cwd sync (OSC 7; `[follow]` toggle)            | M    | High — nobody else has both halves                         |
 | E8-S6  | Pane diff mode (`=`/`≠`/`+`/`-` + transfer-the-difference)  | M    | High                                                       |
 | E8-S7  | Remote search (`find` via exec, bounded SFTP walk fallback) | M    | High                                                       |
 | E8-S9  | Multiple concurrent sessions (host tabs)                    | L    | High, biggest lift — engine is ready, UI is single-session |

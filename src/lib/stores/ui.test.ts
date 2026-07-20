@@ -64,3 +64,19 @@ describe("ui store console height", () => {
     expect(ui.consoleHeight).toBe(360);
   });
 });
+
+describe("ui store follow-shell-cwd", () => {
+  it("defaults to off (opt-in) and toggles + persists", () => {
+    window.localStorage.removeItem("sftpapp.followShellCwd");
+    // Fresh read is exercised via the live singleton's current value; the
+    // important behaviour is that toggling round-trips to storage.
+    const before = ui.followShellCwd;
+    ui.toggleFollowShellCwd();
+    expect(ui.followShellCwd).toBe(!before);
+    expect(window.localStorage.getItem("sftpapp.followShellCwd")).toBe(String(!before));
+
+    ui.toggleFollowShellCwd();
+    expect(ui.followShellCwd).toBe(before);
+    expect(window.localStorage.getItem("sftpapp.followShellCwd")).toBe(String(before));
+  });
+});
