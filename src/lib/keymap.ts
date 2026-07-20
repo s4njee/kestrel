@@ -15,7 +15,8 @@ export type ShortcutAction =
   | "delete"
   | "switchPane"
   | "palette"
-  | "filter";
+  | "filter"
+  | "search";
 
 /** Minimal shape of the key event fields we consult (eases testing). */
 export interface KeyLike {
@@ -73,6 +74,8 @@ export function resolveShortcut(event: KeyLike): ShortcutAction | null {
       return "download";
     case "u":
       return "upload";
+    case "f":
+      return "search";
     default:
       return null;
   }

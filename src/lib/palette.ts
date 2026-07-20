@@ -98,6 +98,10 @@ export interface PaletteDeps {
   bookmarks: Bookmark[];
   /** Connect using a bookmark. */
   onConnectBookmark: (bookmark: Bookmark) => void;
+  /** Whether a remote search can run (connected, with a remote path). */
+  canSearch: boolean;
+  /** Open the remote-search dialog. */
+  onSearch: () => void;
   /** Whether pane diff marks are currently shown (E8-S6). */
   diffMode: boolean;
   /** Turn the pane diff marks on or off. */
@@ -160,6 +164,16 @@ export function buildCommands(deps: PaletteDeps): PaletteCommand[] {
     { id: "delete", label: "delete selected…", hint: "del", run: deps.actions.delete },
     { id: "newFolder", label: "new folder…", run: deps.onNewFolder },
   );
+
+  // Search is remote-only, so unlike the in-pane filter it needs a session.
+  if (deps.canSearch) {
+    commands.push({
+      id: "search",
+      label: "search remote files…",
+      hint: "cmd/ctrl+f",
+      run: deps.onSearch,
+    });
+  }
 
   // Diff mode compares the two panes, so it needs a remote pane to compare with.
   if (deps.connected) {

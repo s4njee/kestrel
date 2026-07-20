@@ -69,6 +69,19 @@ impl ExecOutput {
     }
 }
 
+/// Quote one value as a safe POSIX shell word.
+///
+/// Wraps the value in single quotes and escapes any embedded single quote, so a
+/// path or name containing spaces, `$`, `;`, backticks, or quotes cannot break
+/// out of its argument and inject shell syntax. Every consumer that interpolates
+/// an untrusted remote path into a command line must go through this.
+///
+/// Arguments: `value` — the raw, untrusted path or name.
+/// Returns: a single-quoted shell word safe to concatenate into a command.
+pub(crate) fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
 /// Run one command on an already-opened session channel.
 ///
 /// Sends an `exec` request, then drains the channel until it closes, collecting

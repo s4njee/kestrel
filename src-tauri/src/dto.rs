@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use sftpapp_engine::{
     AuthMethod, ConnectParams, DirEntry, Direction, EditSessionInfo, EntryKind, PromptReply,
-    Secret, TransferRequest,
+    SearchOutcome, SearchStrategy, Secret, TransferRequest,
 };
 use uuid::Uuid;
 
@@ -24,6 +24,56 @@ pub struct DirEntryDto {
     pub mtime: Option<i64>,
     pub permissions: Option<u32>,
     pub link_target: Option<String>,
+}
+
+/// One remote search match, as sent to the webview.
+///
+/// Deliberately carries no metadata beyond the path: see the note in
+/// `engine::search` — `find` cannot portably report an entry's type, and
+/// stat-ing every hit would undo the single-round-trip advantage that motivates
+/// the exec strategy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHitDto {
+    pub path: String,
+    pub name: String,
+}
+
+/// The outcome of a remote search, as sent to the webview.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResultDto {
+    pub hits: Vec<SearchHitDto>,
+    /// "exec" (one server-side `find`) or "walk" (bounded client-side walk).
+    pub strategy: String,
+    /// Whether a bound stopped the search before the tree was exhausted. The UI
+    /// must say so rather than presenting a partial answer as complete.
+    pub truncated: bool,
+}
+
+impl From<SearchOutcome> for SearchResultDto {
+    /// Convert an engine search outcome into its webview DTO.
+    ///
+    /// Arguments: `outcome` — the completed search.
+    /// Returns: the DTO with the strategy rendered as a wire string.
+    fn from(outcome: SearchOutcome) -> Self {
+        SearchResultDto {
+            hits: outcome
+                .hits
+                .into_iter()
+                .map(|h| SearchHitDto {
+                    path: h.path,
+                    name: h.name,
+                })
+                .collect(),
+            strategy: match outcome.strategy {
+                SearchStrategy::Exec => "exec",
+                SearchStrategy::Walk => "walk",
+            }
+            .to_string(),
+            truncated: outcome.truncated,
+        }
+    }
 }
 
 /// String tag for an [`EntryKind`].

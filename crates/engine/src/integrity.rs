@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use md5::Md5;
 use sha2::{Digest as _, Sha256};
 
-use crate::exec::DEFAULT_EXEC_TIMEOUT;
+use crate::exec::{shell_quote, DEFAULT_EXEC_TIMEOUT};
 use crate::session::Session;
 
 /// Result of an optional integrity check.
@@ -67,14 +67,6 @@ const TOOLS: [Tool; 3] = [
         hex_len: 32,
     },
 ];
-
-/// Quote one value as a safe POSIX shell word.
-///
-/// Arguments: `value` — an untrusted remote path.
-/// Returns: a single-quoted word whose embedded quotes cannot inject syntax.
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
-}
 
 /// Parse the leading checksum field emitted by common hash tools.
 ///

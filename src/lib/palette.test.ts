@@ -34,6 +34,7 @@ function deps(over: Partial<PaletteDeps> = {}): PaletteDeps {
       switchPane: vi.fn(),
       palette: vi.fn(),
       filter: vi.fn(),
+      search: vi.fn(),
     },
     connected: true,
     canUpload: true,
@@ -44,6 +45,8 @@ function deps(over: Partial<PaletteDeps> = {}): PaletteDeps {
     onNewFolder: vi.fn(),
     bookmarks: [],
     onConnectBookmark: vi.fn(),
+    canSearch: true,
+    onSearch: vi.fn(),
     diffMode: false,
     onToggleDiff: vi.fn(),
     onTransferDifferences: vi.fn(),
@@ -105,6 +108,7 @@ describe("buildCommands", () => {
       "delete",
       "switchPane",
       "filter",
+      "search",
     ];
     for (const action of expected) {
       expect(ids.has(action), `missing palette entry for ${action}`).toBe(true);
@@ -137,6 +141,11 @@ describe("buildCommands", () => {
     expect(entry!.hint).toBe("deploy@stage.example.com");
     entry!.run();
     expect(onConnectBookmark).toHaveBeenCalledWith(b);
+  });
+
+  it("omits search when there is no remote pane to search", () => {
+    const ids = new Set(buildCommands(deps({ canSearch: false })).map((c) => c.id));
+    expect(ids.has("search")).toBe(false);
   });
 
   it("offers diff mode only while connected", () => {

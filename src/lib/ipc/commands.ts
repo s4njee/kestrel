@@ -585,3 +585,54 @@ export function subscribeTransferEvents(onEvent: (event: TransferEvent) => void)
   channel.onmessage = onEvent;
   return invoke("subscribe_transfer_events", { channel });
 }
+
+/** One remote search match (E8-S7). */
+export interface SearchHit {
+  /** Absolute remote path of the match. */
+  path: string;
+  /** The match's base name. */
+  name: string;
+}
+
+/** The outcome of a remote search. */
+export interface SearchResult {
+  hits: SearchHit[];
+  /**
+   * Which strategy produced the hits: "exec" (one server-side `find`) or "walk"
+   * (a bounded client-side SFTP walk, used when the server refuses exec).
+   */
+  strategy: "exec" | "walk";
+  /** Whether a bound stopped the search before the tree was exhausted. */
+  truncated: boolean;
+}
+
+/**
+ * Search a remote tree for entries whose name contains `query`.
+ *
+ * @param sessionId - the session to search on.
+ * @param searchId - a caller-generated id, so the search can be cancelled while
+ *   it runs (the call itself is awaited and offers no handle).
+ * @param root - the absolute directory to search under.
+ * @param query - the substring to look for; matching is case-insensitive.
+ * @returns the matches and which strategy found them. Rejects with "canceled"
+ *   when {@link cancelSearch} fired for this id.
+ */
+export function searchRemote(
+  sessionId: string,
+  searchId: string,
+  root: string,
+  query: string,
+): Promise<SearchResult> {
+  return invoke("search_remote", { sessionId, searchId, root, query });
+}
+
+/**
+ * Cancel an in-flight remote search.
+ *
+ * @param searchId - the id passed to {@link searchRemote}.
+ * @returns a promise that resolves once the cancellation is recorded; cancelling
+ *   an already-finished search is not an error.
+ */
+export function cancelSearch(searchId: string): Promise<void> {
+  return invoke("cancel_search", { searchId });
+}

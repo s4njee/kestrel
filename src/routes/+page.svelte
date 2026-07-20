@@ -47,6 +47,8 @@
   import { resolveShortcut } from "$lib/keymap";
   import { buildCommands } from "$lib/palette";
   import { diffPanes, differingEntries } from "$lib/diff";
+  import { search } from "$lib/stores/search.svelte";
+  import type { SearchHit } from "$lib/ipc/commands";
   import { toasts } from "$lib/stores/toasts.svelte";
   import { parentPath, joinPath } from "$lib/utils/path";
   import { formatRate } from "$lib/utils/format";
@@ -55,6 +57,7 @@
   import { openPath } from "@tauri-apps/plugin-opener";
   import ContextMenu, { type MenuItem } from "$lib/components/common/ContextMenu.svelte";
   import CommandPalette from "$lib/components/common/CommandPalette.svelte";
+  import SearchDialog from "$lib/components/dialogs/SearchDialog.svelte";
   import PermissionsDialog from "$lib/components/dialogs/PermissionsDialog.svelte";
   import DeleteConfirmDialog from "$lib/components/dialogs/DeleteConfirmDialog.svelte";
   import InputDialog from "$lib/components/dialogs/InputDialog.svelte";
@@ -655,6 +658,43 @@
     void tick().then(() => document.getElementById(`filter-input-${kind}`)?.focus());
   }
 
+  let showSearch = $state(false);
+
+  /**
+   * Open the remote-search dialog for the remote pane's current directory.
+   *
+   * Search is remote-only: it is a server-side `find`, and the local pane is
+   * already searchable far more cheaply by the operating system.
+   */
+  function openSearch(): void {
+    if (!connected || !remotePane.path) return;
+    search.reset();
+    showSearch = true;
+  }
+
+  /** Close the search dialog, cancelling anything still running. */
+  function closeSearch(): void {
+    showSearch = false;
+    void search.cancel();
+    focusActivePane();
+  }
+
+  /**
+   * Reveal a search hit in the remote pane.
+   *
+   * Navigates to the hit's *containing* directory and selects it there, so the
+   * normal pane operations (download, rename, permissions) apply immediately.
+   * A hit at the pane's current path needs no navigation, only selection.
+   *
+   * @param hit - the chosen match.
+   */
+  async function revealHit(hit: SearchHit): Promise<void> {
+    const dir = parentPath(hit.path) || "/";
+    if (dir !== remotePane.path) await loadRemote(dir);
+    ui.setActivePane("remote");
+    remotePane.select(hit.path, { ctrl: false, shift: false });
+  }
+
   /**
    * Follow the shell's working directory in the remote pane.
    *
@@ -671,14 +711,21 @@
   }
 
   /**
-   * Close the command palette and hand focus back to the active pane, so the
-   * global shortcuts (which ignore keystrokes inside inputs) work immediately.
+   * Hand focus back to the active pane after an overlay closes.
+   *
+   * Global shortcuts ignore keystrokes inside inputs, so leaving focus on a
+   * dismissed dialog's field would silently swallow every shortcut afterwards.
    */
-  function closePalette(): void {
-    showPalette = false;
+  function focusActivePane(): void {
     (
       document.querySelector(`section[data-kind="${ui.activePane}"]`) as HTMLElement | null
     )?.focus();
+  }
+
+  /** Close the command palette and hand focus back to the active pane. */
+  function closePalette(): void {
+    showPalette = false;
+    focusActivePane();
   }
 
   /**
@@ -707,6 +754,7 @@
         delete: () => startDelete(ui.activePane),
         switchPane: () => ui.setActivePane(ui.activePane === "local" ? "remote" : "local"),
         filter: () => openFilter(ui.activePane),
+        search: openSearch,
         // The palette does not list itself.
         palette: () => {},
       },
@@ -722,6 +770,8 @@
       diffMode: diffActive,
       onToggleDiff: () => ui.toggleDiffMode(),
       onTransferDifferences: () => void transferDifferences(),
+      canSearch: connected && remotePane.path !== "",
+      onSearch: openSearch,
     });
   }
 
@@ -762,6 +812,10 @@
       case "filter":
         event.preventDefault();
         openFilter(kind);
+        break;
+      case "search":
+        event.preventDefault();
+        openSearch();
         break;
       case "refresh":
         event.preventDefault();
@@ -864,6 +918,16 @@
 {/if}
 {#if showPalette}
   <CommandPalette commands={paletteCommands()} onClose={closePalette} />
+{/if}
+{#if showSearch}
+  <SearchDialog
+    root={remotePane.path}
+    search={search.state}
+    onSearch={(q) => void search.run(sessions.active?.info.id ?? "", remotePane.path, q)}
+    onCancel={() => void search.cancel()}
+    onOpen={(hit) => void revealHit(hit)}
+    onClose={closeSearch}
+  />
 {/if}
 <HostKeyDialog />
 <ConflictDialog />

@@ -35,24 +35,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{EngineError, Result};
-use crate::exec::DEFAULT_EXEC_TIMEOUT;
+use crate::exec::{shell_quote, DEFAULT_EXEC_TIMEOUT};
 use crate::pathsafe::safe_join;
 use crate::session::Session;
 
 /// Chunk size used when shuttling archive bytes between disk and the channel.
 const CHUNK: usize = 64 * 1024;
-
-/// Quote a path for safe interpolation into a remote `sh -c` command line.
-///
-/// Wraps the value in single quotes and escapes any embedded single quote, so a
-/// directory name containing spaces, `$`, `;`, or quotes cannot break out of the
-/// argument and inject shell syntax.
-///
-/// Arguments: `value` — the raw path or name.
-/// Returns: a single-quoted shell word safe to concatenate into a command.
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
-}
 
 /// Whether the remote host can run `tar`.
 ///

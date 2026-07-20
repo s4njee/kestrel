@@ -108,7 +108,7 @@ impl Drop for TestServer {
 
 /// Start a test server on a random port.
 pub async fn start_password_server(user: &str, password: &str) -> TestServer {
-    start_server(user, password, None, 0, HashBehavior::Unavailable).await
+    start_server(user, password, None, 0, HashBehavior::Unavailable, false).await
 }
 
 /// Start a password server with `sha256sum` available to remote exec calls.
@@ -127,12 +127,24 @@ pub async fn start_hash_server(
     } else {
         HashBehavior::Available
     };
-    start_server(user, password, None, 0, behavior).await
+    start_server(user, password, None, 0, behavior, false).await
+}
+
+/// Start a test server whose exec side channel implements `find -iname`.
+///
+/// The other helpers deliberately leave `find` absent (exit 127), which is what
+/// a restricted, sftp-only server looks like — that is the fallback path. Use
+/// this one to exercise the server-side search.
+///
+/// Arguments: `user`/`password` — credentials.
+/// Returns: the running tempdir-backed server.
+pub async fn start_find_server(user: &str, password: &str) -> TestServer {
+    start_server(user, password, None, 0, HashBehavior::Unavailable, true).await
 }
 
 /// Start a test server on a specific port (0 = random).
 pub async fn start_password_server_on(user: &str, password: &str, port: u16) -> TestServer {
-    start_server(user, password, None, port, HashBehavior::Unavailable).await
+    start_server(user, password, None, port, HashBehavior::Unavailable, false).await
 }
 
 /// Start a test server that requires keyboard-interactive auth, accepting
@@ -144,6 +156,7 @@ pub async fn start_ki_server(user: &str, answer: &str) -> TestServer {
         Some(answer.to_string()),
         0,
         HashBehavior::Unavailable,
+        false,
     )
     .await
 }
@@ -156,6 +169,7 @@ async fn start_server(
     ki_answer: Option<String>,
     port: u16,
     hash_behavior: HashBehavior,
+    supports_find: bool,
 ) -> TestServer {
     let host_key = decode_secret_key(TEST_HOST_KEY, None).unwrap();
     let host_key_openssh = host_key.public_key().to_openssh().unwrap();
@@ -199,6 +213,7 @@ async fn start_server(
         shell: shell_state.clone(),
         last_exec: exec_state.clone(),
         hash_behavior,
+        supports_find,
     };
 
     // Manual accept loop: each connection selects on a shutdown token so that
@@ -249,6 +264,7 @@ struct ServerImpl {
     shell: Arc<Mutex<ShellObserved>>,
     last_exec: Arc<Mutex<Option<String>>>,
     hash_behavior: HashBehavior,
+    supports_find: bool,
 }
 
 impl Server for ServerImpl {
@@ -264,6 +280,7 @@ impl Server for ServerImpl {
             shell: self.shell.clone(),
             last_exec: self.last_exec.clone(),
             hash_behavior: self.hash_behavior,
+            supports_find: self.supports_find,
             shell_channels: Arc::new(Mutex::new(std::collections::HashSet::new())),
         }
     }
@@ -278,6 +295,8 @@ struct SessionHandler {
     shell: Arc<Mutex<ShellObserved>>,
     last_exec: Arc<Mutex<Option<String>>>,
     hash_behavior: HashBehavior,
+    /// Whether the exec side channel implements `find -iname`.
+    supports_find: bool,
     /// Channels that have become interactive shells.
     shell_channels: Arc<Mutex<std::collections::HashSet<ChannelId>>>,
 }
@@ -395,6 +414,20 @@ impl Handler for SessionHandler {
                 }
             } else {
                 (String::new(), "invalid quoted path\n".to_string(), 2u32)
+            }
+        } else if self.supports_find && command.starts_with("find ") {
+            match parse_find(&command) {
+                Some((root, pattern)) => {
+                    let mut out = String::new();
+                    walk_for_find(
+                        &self.root.join(root.trim_start_matches('/')),
+                        &root,
+                        &pattern,
+                        &mut out,
+                    );
+                    (out, String::new(), 0u32)
+                }
+                None => (String::new(), "find: bad usage\n".to_string(), 1u32),
             }
         } else if let Some(rest) = command.strip_prefix("echo ") {
             (format!("{rest}\n"), String::new(), 0u32)
@@ -794,5 +827,120 @@ impl russh_sftp::server::Handler for SftpHandler {
             id,
             files: vec![File::dummy(target.to_string_lossy().into_owned())],
         })
+    }
+}
+
+/// Split the engine's `find <root> -iname <pattern> 2>/dev/null` into its parts.
+///
+/// Arguments: `command` — the full command line the engine sent.
+/// Returns: `Some((root, pattern))` with both shell words unquoted, or `None`
+/// when the line is not the shape this stub understands.
+fn parse_find(command: &str) -> Option<(String, String)> {
+    let rest = command.strip_prefix("find ")?;
+    let rest = rest.strip_suffix(" 2>/dev/null").unwrap_or(rest);
+    let (root_word, rest) = split_quoted_word(rest)?;
+    let rest = rest.strip_prefix(" -iname ")?;
+    let (pattern_word, _) = split_quoted_word(rest)?;
+    Some((shell_unquote(root_word)?, shell_unquote(pattern_word)?))
+}
+
+/// Take one single-quoted word off the front of a command line.
+///
+/// Arguments: `text` — a command-line remainder beginning with `'`.
+/// Returns: `Some((word, rest))` where `word` still carries its quotes, or
+/// `None` when `text` does not start with a closed single-quoted word.
+fn split_quoted_word(text: &str) -> Option<(&str, &str)> {
+    if !text.starts_with('\'') {
+        return None;
+    }
+    // A quoted word ends at the first `'` not followed by the `\''` escape.
+    let bytes = text.as_bytes();
+    let mut i = 1;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            if text[i..].starts_with("'\\''") {
+                i += 4;
+                continue;
+            }
+            return Some((&text[..=i], &text[i + 1..]));
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Match a name against a `find -iname` glob.
+///
+/// A **real** glob matcher, not a substring test: `*` is a wildcard and `\`
+/// escapes the character after it. That distinction is the whole point — a stub
+/// that treated the pattern as a substring would report success whether or not
+/// the engine escaped the metacharacters in the user's query, so the escaping
+/// test would pass vacuously.
+///
+/// Arguments: `pattern` — the glob, as the engine built it; `name` — one entry
+/// name.
+/// Returns: whether the name matches, case-insensitively (`-iname`).
+fn glob_match(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.to_lowercase().chars().collect();
+    let name: Vec<char> = name.to_lowercase().chars().collect();
+    // Iterative backtracking: `star` remembers the last `*` to retry from.
+    let (mut p, mut n) = (0usize, 0usize);
+    let mut star: Option<(usize, usize)> = None;
+    while n < name.len() {
+        let literal = match pattern.get(p) {
+            Some('\\') => pattern.get(p + 1).copied(),
+            Some('*') => {
+                star = Some((p, n));
+                p += 1;
+                continue;
+            }
+            Some('?') => Some(name[n]),
+            other => other.copied(),
+        };
+        let width = if pattern.get(p) == Some(&'\\') { 2 } else { 1 };
+        if literal == Some(name[n]) {
+            p += width;
+            n += 1;
+        } else if let Some((sp, sn)) = star {
+            p = sp + 1;
+            n = sn + 1;
+            star = Some((sp, sn + 1));
+        } else {
+            return false;
+        }
+    }
+    while pattern.get(p) == Some(&'*') {
+        p += 1;
+    }
+    p >= pattern.len()
+}
+
+/// Walk the served tree the way `find -iname` would.
+///
+/// Symlinks are matched but not followed, as in the engine's own walk.
+///
+/// Arguments: `dir` — the local directory being walked; `remote_dir` — its path
+/// as the client sees it;
+/// `pattern` — the `*needle*` glob; `out` — accumulates newline-separated hits.
+/// Returns: nothing; results are appended to `out`.
+fn walk_for_find(
+    dir: &std::path::Path,
+    remote_dir: &str,
+    pattern: &str,
+    out: &mut String,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let remote = format!("{}/{}", remote_dir.trim_end_matches('/'), name);
+        if glob_match(pattern, &name) {
+            out.push_str(&remote);
+            out.push('\n');
+        }
+        if entry.path().is_dir() {
+            walk_for_find(&entry.path(), &remote, pattern, out);
+        }
     }
 }

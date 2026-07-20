@@ -158,6 +158,8 @@ pub fn run() {
             commands::settings::save_settings,
             commands::browse::list_dir,
             commands::browse::stat_entry,
+            commands::browse::search_remote,
+            commands::browse::cancel_search,
             commands::edit::start_edit_session,
             commands::edit::close_edit_session,
             commands::edit::list_edit_sessions,

@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
+use dashmap::DashMap;
 use sftpapp_engine::{DirWatcher, Engine};
+use tokio_util::sync::CancellationToken;
 
 use crate::bookmarks::BookmarkStore;
 use crate::secrets::SecretStore;
@@ -30,6 +32,14 @@ pub struct AppState {
     /// The watcher's debounced change stream, taken once by
     /// `subscribe_session_events` to forward `localDirChanged` events.
     pub watch_events: Mutex<Option<Receiver<PathBuf>>>,
+    /// Cancellation tokens for in-flight remote searches, keyed by the search id
+    /// the frontend generated (E8-S7).
+    ///
+    /// The search command is a plain awaited round-trip, so there is no handle
+    /// to cancel *through*; the caller names the search up front and
+    /// `cancel_search` reaches it here. Entries are removed by the search itself
+    /// when it finishes, so an abandoned id cannot accumulate.
+    pub searches: DashMap<String, CancellationToken>,
 }
 
 impl AppState {
@@ -57,6 +67,7 @@ impl AppState {
             settings,
             watcher: Mutex::new(watcher),
             watch_events: Mutex::new(Some(watch_events)),
+            searches: DashMap::new(),
         }
     }
 }

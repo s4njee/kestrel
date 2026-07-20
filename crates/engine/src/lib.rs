@@ -17,6 +17,7 @@
 //! - [`hostkey`]  — known_hosts parsing and trust-on-first-use decisions
 //! - [`transfer`] — transfer queue, worker pool, chunked I/O, retry policy
 //! - [`tarstream`] — tar-accelerated directory transfers (E8-S2)
+//! - [`search`]   — remote tree search: `find` with a bounded SFTP walk (E8-S7)
 //! - [`watcher`]  — local-directory filesystem watching
 
 pub mod auth;
@@ -28,6 +29,7 @@ pub mod fs;
 pub mod hostkey;
 pub mod integrity;
 pub mod pathsafe;
+pub mod search;
 pub mod session;
 pub mod shell;
 pub mod tarstream;
@@ -48,6 +50,7 @@ pub use fs::{
 };
 pub use hostkey::{HostKey, HostKeyStatus, KnownHosts};
 pub use pathsafe::{safe_component, safe_join};
+pub use search::{search, SearchHit, SearchOptions, SearchOutcome, SearchStrategy};
 pub use session::{Engine, Session};
 pub use shell::{Shell, ShellId};
 pub use transfer::io::{copy_file, CopyOptions};

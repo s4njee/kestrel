@@ -30,6 +30,9 @@ zeroize = { workspace = true }
 # Terminal bytes are not valid UTF-8 mid-escape-sequence, so shell I/O crosses
 # IPC base64-encoded.
 base64 = { workspace = true }
+# In-flight remote searches are keyed by id in AppState and cancelled by token.
+dashmap = { workspace = true }
+tokio-util = { workspace = true }
 
 # OS keychain for saved passwords/passphrases. keyring 4's default `v1` feature
 # selects the platform-appropriate backend per target — macOS Keychain, Windows
