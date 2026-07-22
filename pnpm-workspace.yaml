@@ -1,0 +1,8 @@
+allowBuilds:
+  # Required: esbuild's postinstall fetches its platform binary, which Vite needs.
+  esbuild: true
+  # Only used by the wdio e2e suite (`pnpm test:e2e`), which drives the built
+  # desktop app through tauri-driver rather than a browser. Left off so a plain
+  # install doesn't download browser drivers.
+  edgedriver: false
+  geckodriver: false

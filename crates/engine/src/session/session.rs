@@ -131,7 +131,9 @@ async fn agent_connect() -> Result<
             return Ok(AgentClient::connect(Box::new(pipe)
                 as Box<dyn russh::keys::agent::client::AgentStream + Send + Unpin>));
         }
-        let agent = AgentClient::connect_pageant().await;
+        let agent = AgentClient::connect_pageant()
+            .await
+            .map_err(|e| EngineError::Auth(format!("ssh-agent unavailable: {e}")))?;
         Ok(AgentClient::connect(agent.into_inner()))
     }
     #[cfg(not(any(unix, windows)))]

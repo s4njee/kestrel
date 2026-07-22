@@ -573,6 +573,29 @@ fn attrs_from(meta: &std::fs::Metadata) -> FileAttributes {
         a.mtime = Some(meta.mtime() as u32);
         a.atime = Some(meta.atime() as u32);
     }
+    // Windows metadata has no Unix mode, so synthesize one. Without the file-type
+    // bits every entry looks like a directory to an SFTP client, so a listing
+    // served from a Windows host would be wrong in a way the Unix path is not.
+    #[cfg(not(unix))]
+    {
+        const S_IFDIR: u32 = 0o040_000;
+        const S_IFREG: u32 = 0o100_000;
+        let readonly = meta.permissions().readonly();
+        a.permissions = Some(if meta.is_dir() {
+            S_IFDIR | if readonly { 0o555 } else { 0o755 }
+        } else {
+            S_IFREG | if readonly { 0o444 } else { 0o644 }
+        });
+        a.uid = Some(0);
+        a.gid = Some(0);
+        let secs = |t: std::io::Result<std::time::SystemTime>| {
+            t.ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as u32)
+        };
+        a.mtime = secs(meta.modified());
+        a.atime = secs(meta.accessed()).or(a.mtime);
+    }
     a
 }
 
@@ -742,6 +765,8 @@ impl russh_sftp::server::Handler for SftpHandler {
         Ok(ok_status(id))
     }
 
+    // Windows has no Unix mode to apply, so both arguments go unused there.
+    #[cfg_attr(not(unix), allow(unused_variables))]
     async fn setstat(
         &mut self,
         id: u32,

@@ -56,6 +56,12 @@ jobs:
             build-essential \
             libssl-dev
 
+      # aws-lc-sys (russh -> aws-lc-rs) assembles its crypto primitives with
+      # NASM on Windows x86_64 and hard-fails the build if it is missing.
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
