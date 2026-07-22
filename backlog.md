@@ -1,119 +1,169 @@
-# Backlog — kestrel (sftpapp)
+# Backlog — feature-completeness ideas
 
-> **Product-level backlog.** [tasks.md](tasks.md) remains the implementing
-> agent's story file — self-contained Do/Accept stories, worked one at a time,
-> one commit per story. This file is the wider view: everything still open in
-> tasks.md (referenced by story id, not duplicated), plus **candidate features
-> (B-ids) that have no tasks.md story yet**. Promote a B-item by writing it up
-> as a proper story in tasks.md; on any conflict, tasks.md wins.
->
-> Status snapshot: **58 stories shipped** (Epics 0–6 complete; E7-S8, E8-S1–S5,
-> E8-S8, E8-S12–S13 done), 16 open. Sizes: S ≈ half a session, M ≈ a session, L ≈ multiple.
+Candidate features to move Kestrel from "solid, focused SFTP client" toward
+parity with mature clients (FileZilla, WinSCP, Cyberduck) and toward a real 1.0.
 
-## 1 — Release blockers (maintainer-only, 🔒)
+This file is deliberately **complementary** to the Epic 8 backlog in
+[`tasks.md`](tasks.md) (`## Epic 8 — Novel features`). Epic 8 tracks
+*differentiation* ideas that lean on Kestrel's two unusual assets — the live
+PTY/exec channel and the engine-side filesystem watcher. This file tracks
+*table-stakes* features that ordinary users expect and notice missing. Where the
+two overlap, this file points at the Epic 8 story rather than restating it.
 
-Nothing ships until these are done, and none can be done by an agent — they
-need credentials, hardware, or a push. In dependency order:
+Nothing here is committed work. Items are grouped by theme, each with a rough
+size (S/M/L) and a one-line rationale. Pick by value.
 
-| Ref      | Item                                                                      | Size |
-| -------- | ------------------------------------------------------------------------- | ---- |
-| E7-S1 🔒 | Decide the app name before signing (rename is cheap now, expensive after) | S    |
-| E7-S2 🔒 | Install signing secrets + point the updater at the real repo              | M    |
-| E7-S3 🔒 | Cut a real signed release; prove a prior install auto-updates             | M    |
-| E7-S4 🔒 | Execute the 22-item manual smoke checklist (≥ macOS)                      | M    |
+## Legend
 
-## 2 — Verification debt
+- **S / M / L** — rough implementation size.
+- **↔ E8-Sn** — related to an existing Epic 8 story; see `tasks.md`.
+- Every remote-side feature must keep the **pure-SFTP fallback** working — the
+  project invariant that exotic/restricted servers lose the enhancement, never
+  the feature.
 
-Built and unit/integration-tested, but never exercised against a real host or
-native window. Cheap to run once the app is in hand; each either passes or
-files a defect story.
+---
 
-| Ref    | Item                                                                                                            | Size |
-| ------ | --------------------------------------------------------------------------------------------------------------- | ---- |
-| E7-S5  | Type into the live shell against a real host (fit/refit are the risks)                                          | S    |
-| E7-S6  | Folder expansion against a real filesystem, both panes                                                          | S    |
-| E7-S7  | ssh-agent success path, keychain round-trip, Docker suite, e2e smoke, DnD, 1 GB + network-kill                  | M    |
-| E7-S12 | Measure high-RTT throughput (loopback can't exercise read-ahead risk)                                           | S    |
-| —      | Benchmark tar acceleration vs per-file on ≥500 small files (E8-S2 deviation: speedup is reasoned, not measured) | S    |
+## 1. Protocols & connectivity
 
-## 3 — Engine robustness (open refinements)
+The README already promises the `RemoteFs` trait is protocol-agnostic; these
+cash that promise in.
 
-| Ref    | Item                         | Size | Notes                                                                                     |
-| ------ | ---------------------------- | ---- | ----------------------------------------------------------------------------------------- |
-| E7-S9  | Stream directory enumeration | M    | Up-front walk holds every request in memory; 100k-file trees need incremental enumeration |
-| E7-S10 | Recurse OS folder drops      | S    | Dropping a folder onto the window currently fails its transfer                            |
-| E7-S11 | Restore type-ahead selection | S    | Dropped in E1-S10 over a11y trade-offs; needs a proper roving-tabindex listbox            |
+- **FTP / FTPS backend** (L) — the most-requested "other protocol". Implement
+  behind `RemoteFs` so the queue, panes, and conflict logic come for free.
+- **WebDAV backend** (L) — covers Nextcloud/ownCloud and many NAS boxes.
+- **S3 / S3-compatible backend** (L) — buckets as a browsable tree; MinIO,
+  Backblaze B2, R2. Pairs well with the existing atomic-write discipline.
+- **ProxyJump / bastion / jump host** (M) — connect through a bastion the way
+  `ssh -J` does. Table stakes for anyone behind a jump box.
+- **SOCKS / HTTP proxy support** (M) — corporate-network requirement.
+- **`~/.ssh/config` import** (M) — read `Host` aliases, `HostName`, `User`,
+  `Port`, `IdentityFile`, `ProxyJump` and offer them as bookmark seeds. Huge
+  onboarding win for existing SSH users.
+- **SSH agent forwarding** (S) — forward the agent so hops from the shell work.
+- **Local port forwarding / tunnels** (M) — `-L`/`-R` style tunnels managed from
+  the UI; a common reason people keep a terminal open alongside the client.
 
-## 4 — Novel features in flight (Epic 8, remaining)
+## 2. Sync & transfer
 
-The differentiators. E8-S1 (exec primitive) is shipped, so none of these are
-blocked. Every exec-based feature keeps a pure-SFTP fallback.
+- **Folder synchronization** (L) — one-way mirror and/or two-way sync with a
+  dry-run preview. Explicitly listed as "not in v1" in the README; it's the
+  single biggest gap vs. WinSCP/Cyberduck. Builds naturally on ↔ **E8-S6**
+  (pane diff mode) — diff is the read half of sync.
+- **Bandwidth throttling** (M) — global and/or per-transfer speed cap. Needed on
+  metered or shared links; a frequent FileZilla setting.
+- **Transfer filters** (M) — include/exclude globs (skip `.git`, `node_modules`,
+  `*.tmp`) applied to recursive transfers.
+- **Scheduled / automated transfers** (L) — "upload this folder every night".
+  Overlaps with WinSCP's scripting/automation niche.
+- **Upload resume** (M) — downloads already resume from `.part`; confirm/extend
+  the same guarantee to interrupted **uploads** (SFTP append/offset write).
+- **Pipelined single-file reads** (M) — the README's own performance note flags
+  `russh-sftp`'s non-pipelined reader as the real high-RTT bottleneck. Overlap
+  reads in `transfer/io.rs`. Directly improves the headline throughput number.
+- **On-the-wire compression** (S) — negotiate SSH compression for
+  text-heavy trees on slow links.
+- **Queue reordering & priorities** (S) — drag to reorder, "do this next".
 
-| Ref    | Item                                                        | Size | Value                                                      |
-| ------ | ----------------------------------------------------------- | ---- | ---------------------------------------------------------- |
-| E8-S12 | Connection health HUD (latency sparkline by `● live`)       | S    | Medium                                                     |
-| E8-S10 | Frecency path jump (zoxide for remote dirs)                 | S    | Medium                                                     |
-| E8-S11 | Per-bookmark on-connect snippets (visible, opt-in)          | S    | Medium                                                     |
-| E8-S6  | Pane diff mode (`=`/`≠`/`+`/`-` + transfer-the-difference)  | M    | High                                                       |
-| E8-S7  | Remote search (`find` via exec, bounded SFTP walk fallback) | M    | High                                                       |
-| E8-S9  | Multiple concurrent sessions (host tabs)                    | L    | High, biggest lift — engine is ready, UI is single-session |
+## 3. Browsing & file management
 
-## 5 — New candidates (no tasks.md story yet)
+- **In-pane filter box** (S) — quick client-side filter of the current listing
+  by substring/glob. Cheap, high daily value. (`show_hidden` already exists;
+  this is the live-filter companion.)
+- **File preview / quick look** (M) — peek at text and images without a full
+  download-and-open round trip; stream the head of the file.
+- **Directory size calculation** (S) — on-demand recursive size for a folder
+  (exec `du` with an SFTP-walk fallback, mirroring the ↔ **E8** fallback rule).
+- **Batch rename** (M) — pattern/regex rename across a selection.
+- **Column customization & sort** (S) — choose/sort columns (size, mtime, perms,
+  owner); persist per pane.
+- **Copy path / copy URL** (S) — copy a file's remote path or a `sftp://` URL.
+- **Duplicate file** (S) — server-side copy where possible, else round-trip.
+- **Create symlink** (S) — listings already *show* symlink targets (never
+  followed); add a create action. Keep the never-follow invariant intact.
+- **Recursive chmod** (S) — apply permission changes down a tree; extends the
+  existing `PermissionsDialog`.
+- **Owner / group edit (chown)** (S) — where the server permits it.
+- **Free-space / disk-usage indicator** (S) — show remote filesystem capacity in
+  the status bar.
 
-### Design & UX
+## 4. Editing & OS integration
 
-| Id  | Item                                    | Size | Notes                                                                                                                                                                                                                                                                                                                                                                  |
-| --- | --------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B1  | **Classic Pro theme + theme switch**    | M    | Unfinished design scope: the handoff README specifies two user-switchable themes (`1a-classic-pro.html` is "Default" in the reference); only Terminal Grid was built. Tokens are already role-named, so this is a second CSS variable set behind a root `data-theme` — plus the 1a-only structural bits (site-manager sidebar, Host/User/Pass/Port quickconnect strip) |
-| B2  | File preview panel                      | M    | Space/side-panel preview for text (first N KB via existing `open_read`) and images; read-only, no full download for a peek                                                                                                                                                                                                                                             |
-| B4  | Batch rename                            | M    | Rename a multi-selection with a pattern (`*.log` → `*.log.bak`, numbering); dry-run preview list before applying                                                                                                                                                                                                                                                       |
-| B5  | Properties dialog                       | S    | Per-entry details; directory sizes via `du -sh` over exec with SFTP-walk fallback; remote free space via `df` in the status area                                                                                                                                                                                                                                       |
-| B6  | Hide/show local pane (remote-only mode) | S    | Single-pane layout toggle for pure server administration                                                                                                                                                                                                                                                                                                               |
+- **Editor picker for edit-and-sync** (S) — ↔ **E8-S4** ships open-in-default;
+  add a configurable editor and per-extension overrides.
+- **"Open terminal here"** (S) — open the [shell] tab already `cd`'d into the
+  focused pane directory. Natural companion to ↔ **E8-S5** (shell↔pane sync).
+- **"Reveal in Finder/Explorer"** (S) — for the local pane.
+- **Drag files *out* to the OS** — noted as a hard Tauri limitation in the
+  README; track it so the constraint is visible, and revisit if Tauri adds it.
 
-### Transfer engine
+## 5. Security & auth
 
-| Id  | Item                           | Size | Notes                                                                                                                                                                          |
-| --- | ------------------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| B7  | Bandwidth throttling           | M    | Global up/down caps in Settings; token-bucket in the copy loop (and the tar stream)                                                                                            |
-| B8  | Queue reordering + priorities  | M    | Drag rows in the transfer queue; bump-to-front action                                                                                                                          |
-| B9  | Remote trash instead of delete | M    | Move remote deletes into `.kestrel-trash/` with an undo toast + purge policy; falls back to real delete where rename fails. Softens the scariest irreversible action           |
-| B10 | Compression toggle             | S    | Negotiate SSH compression per bookmark (helps text-heavy transfers on slow links; off by default — CPU-bound links regress)                                                    |
-| B11 | One-way sync with dry-run      | L    | "Make remote look like local" (or inverse) built on E8-S6's diff: preview the exact operation list, require confirmation. Deliberate half-step short of continuous folder sync |
+- **FIDO2 / hardware security keys** (M) — `sk-ed25519` / `sk-ecdsa` auth. Common
+  now; absence blocks security-conscious users.
+- **SSH certificate auth** (M) — user certificates (`-cert.pub`), standard in
+  larger orgs with an SSH CA.
+- **known_hosts management UI** (S) — view/remove trusted host keys from within
+  the app. The trust flow exists (TOFU + MITM hard-fail); this is the
+  housekeeping half.
+- **Passphrase caching in the OS keyring** (S) — optionally remember an unlocked
+  key passphrase for the session, using the existing keyring integration.
+- **Per-bookmark auth method pinning** (S) — remember "this host uses the agent"
+  so reconnect doesn't re-prompt through every method.
 
-### Connectivity & interop
+## 6. UX & polish
 
-| Id  | Item                                     | Size   | Notes                                                                                                                                                                                           |
-| --- | ---------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B12 | `~/.ssh/config` import                   | M      | Read Host aliases, HostName, User, Port, IdentityFile into bookmark suggestions — people already maintain this file                                                                             |
-| B13 | ProxyJump / bastion hosts                | L      | `ssh -J` equivalent: connect through a jump host by nesting a channel as the transport for the second session. russh supports channel streams; sizeable but high value for real infrastructures |
-| B14 | Bookmark import from FileZilla/Cyberduck | S      | Parse `sitemanager.xml` / Cyberduck bookmark plists; migration path for switchers                                                                                                               |
-| B15 | Protocol expansion: FTP/FTPS, WebDAV, S3 | L each | The original v2 goal the `RemoteFs` seam exists for; each protocol is its own epic — promote individually                                                                                       |
+- **Light / dark theme toggle** (S) — no theme setting exists today; the app is
+  terminal-grid styled. Add an explicit toggle + system-follow.
+- **Transfer history** (M) — a persistent log of completed transfers (what, when,
+  size, throughput, result) separate from the live queue.
+- **Session / protocol log panel** (M) — a viewable SFTP/SSH message log for
+  debugging server quirks. WinSCP's log is a big reason people trust it.
+- **Desktop notification on queue completion** (S) — notify when a long batch
+  finishes and the window is unfocused.
+- **First-run / empty-state onboarding** (S) — guide toward "add a bookmark" or
+  the demo server.
+- **Localization scaffolding (i18n)** (M) — externalize strings; even one extra
+  language proves the seam.
+- **Accessibility pass** (M) — keyboard focus order, ARIA on dialogs, contrast
+  audit of the terminal-grid palette.
+- **Configurable keybindings** (S) — the keymap already has an action registry
+  (see ↔ **E8-S8** command palette); expose it for rebinding.
 
-### Security & robustness
+## 7. Distribution & operations
 
-| Id  | Item                                     | Size | Notes                                                                                                           |
-| --- | ---------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------- |
-| B16 | On-demand checksum from the context menu | S    | "Verify" action on any file reusing E8-S3's machinery (currently post-transfer only)                            |
-| B17 | Session log export                       | S    | Write the [log] tab to a file for audit/support                                                                 |
-| B18 | Keepalive/timeout tuning per bookmark    | S    | Current 5s×3 keepalive is global; flaky links want laxer settings                                               |
-| B19 | i18n scaffolding                         | M    | Externalize UI strings before the count grows; terminal-grid labels (`[connect]`) need width-aware translations |
+- **Signed releases + working updater** (M) — the pipeline, updater config, and
+  signing setup exist but the secrets and a real update endpoint are
+  placeholders (see [`docs/RELEASING.md`](docs/RELEASING.md)). This is the
+  gating item for an actual 1.0 with published binaries.
+- **Rename off the working title** (S) — the README notes the bundle id and
+  crate names are still `sftpapp` while the UI says Kestrel; unify before 1.0.
+- **Config import / export** (S) — move bookmarks and settings between machines
+  (secrets stay in the OS store and are re-entered, not exported).
+- **Portable mode** (S) — keep config next to the binary for USB-stick use.
+- **Headless CLI mode** (L) — a scriptable transfer CLI over the same engine;
+  overlaps the "scheduled transfers" niche and makes the engine's Tauri-free
+  design pay off.
 
-## 6 — Blocked upstream / declined
+## 8. Testing & quality (enablers)
 
-- **Drag out to Finder/Explorer** — Tauri cannot initiate native file drags;
-  revisit only if upstream adds it. The dual-pane layout is the mitigation.
-- **Continuous background folder sync** — deliberately out of scope; B11's
-  explicit dry-run sync is the intended alternative (a background syncer that
-  deletes wrongly is the worst failure mode this app could have).
-- **Mobile** — out of scope for the foreseeable future.
+- **High-RTT benchmark** (S) — the README explicitly calls this out as
+  outstanding; it's the measurement that would justify (or retire) the pipelined
+  reads item in §2.
+- **Real-server acceptance runs** (S) — several Epic 8 deviations note checks
+  that need a real remote (tar 500-file speedup, edit-and-sync click-through).
+  A CI job against a containerized OpenSSH server would close them.
+- **macOS e2e coverage** (M) — e2e is Linux/Windows only today (`tauri-driver`
+  has no macOS support); track an alternative so the Mac build isn't
+  smoke-tested by hand.
 
-## Suggested order
+---
 
-1. **Unblock shipping**: §1 (maintainer) in parallel with §2 verification.
-2. **Quick wins while blocked**: E8-S8 palette → B3 filter → E8-S12 HUD →
-   E8-S10 frecency — all S-sized, all immediately visible.
-3. **Differentiators**: E8-S5 cwd sync → E8-S6 diff → E8-S7 search → B9 trash.
-4. **Foundations for scale**: E7-S9 streaming enumeration before B15 protocols;
-   E8-S9 host tabs before B13 jump hosts (tabs make multi-hop sane).
-5. **B1 Classic Pro theme** whenever a change of pace is wanted — it closes out
-   the original design handoff.
+## Suggested near-term ordering
+
+A pragmatic path, balancing user-visible value against effort:
+
+1. **Signed releases + updater** (§7) — nothing else ships to users without it.
+2. **`~/.ssh/config` import** (§1) and **in-pane filter** (§3) — cheap, high daily value.
+3. **Folder synchronization** (§2) — the biggest single competitive gap.
+4. **ProxyJump / bastion** (§1) — unblocks a whole class of corporate users.
+5. **Light/dark theme + transfer history** (§6) — expected polish for a 1.0.

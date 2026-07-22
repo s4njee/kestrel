@@ -9,6 +9,34 @@ keys it needs.
 > and on maintainer machines. The repo contains only the **public** updater key
 > (in `src-tauri/tauri.conf.json`).
 
+## 0. Build prerequisites
+
+Beyond Rust (stable), Node 20, and pnpm, each OS needs its own toolchain. CI
+installs these itself (`.github/workflows/ci.yml`); on a maintainer machine you
+install them once.
+
+**Windows** additionally requires **NASM**. `russh` pulls in `aws-lc-rs` →
+`aws-lc-sys`, which assembles its crypto primitives with NASM on x86_64 and
+aborts the build outright if it is absent:
+
+```
+NASM command not found! Build cannot continue.
+```
+
+```powershell
+winget install NASM.NASM
+```
+
+The winget package installs per-user (`%LOCALAPPDATA%\bin\NASM`) and does not
+always land on `PATH` for already-open shells — confirm with `nasm -v` in a new
+terminal before building. You also need the Visual Studio C++ build tools and
+the WebView2 runtime (preinstalled on Windows 11).
+
+> Build with `pnpm tauri build`, **not** a bare `cargo build --release`. The
+> Tauri CLI enables the `custom-protocol` feature that makes the app serve its
+> embedded frontend assets; a plain cargo build produces a binary that still
+> points at the `devUrl` dev server and shows an error page instead of the UI.
+
 ## 1. Updater signing key (minisign)
 
 The auto-updater verifies every downloaded update against a minisign public key
