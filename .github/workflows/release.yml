@@ -2,7 +2,7 @@
 #
 # A v* tag produces exactly the two primary download formats: a universal
 # macOS .app wrapped in a .zip, and a Windows x64 NSIS installer (.exe). The
-# final job collects both builds into one draft GitHub Release.
+# final job collects both builds into one published GitHub Release.
 
 name: Release
 
@@ -133,7 +133,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Create draft GitHub Release
+    name: Create GitHub Release
     needs: [macos, windows]
     runs-on: ubuntu-22.04
     permissions:
@@ -152,7 +152,7 @@ jobs:
           test -s "release-assets/kestrel-${GITHUB_REF_NAME}-macos-universal.zip"
           test -s "release-assets/kestrel-${GITHUB_REF_NAME}-windows-x64.exe"
 
-      - name: Create draft release
+      - name: Create release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -163,7 +163,6 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" release-assets/* \
               --verify-tag \
-              --draft \
               --generate-notes \
               --title "Kestrel $GITHUB_REF_NAME"
           fi

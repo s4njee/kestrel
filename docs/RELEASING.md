@@ -1,7 +1,7 @@
 # Releasing sftpapp
 
 This document covers signing, the auto-updater, and how to cut a release. The
-release pipeline itself (GitHub Actions platform builds → draft release) is in
+release pipeline itself (GitHub Actions platform builds → published release) is in
 `.github/workflows/release.yml` (E5-S4). The current automated release always
 produces unsigned installer artifacts; updater and OS signing are documented
 below for when a signed distribution pipeline is enabled.
@@ -125,10 +125,10 @@ integrity guarantee.
 2. Commit the version bump and ensure CI is green.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. The release workflow builds a universal macOS application ZIP and a Windows
-   x64 NSIS installer EXE, then creates a **draft** GitHub release containing
+   x64 NSIS installer EXE, then creates a published GitHub release containing
    both artifacts. The workflow disables updater artifacts so missing updater
    signing secrets cannot prevent installer releases.
-5. Download and smoke-test both assets from the draft, then publish it.
+5. Download and smoke-test both assets from the published release.
 
 ## 5. Local build check (no signing)
 
