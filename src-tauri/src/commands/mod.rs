@@ -12,6 +12,7 @@ pub mod browse;
 pub mod edit;
 pub mod fileops;
 pub mod local;
+pub mod media;
 pub mod session;
 pub mod settings;
 pub mod shell;

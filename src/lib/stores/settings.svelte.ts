@@ -13,7 +13,9 @@ class SettingsStore {
     defaultConflict: "ask",
     defaultLocalDir: null,
     showHidden: false,
-    tarAcceleration: true,
+    // Per-file folder progress is the default. Users can explicitly trade that
+    // detail for tar acceleration when moving many small files.
+    tarAcceleration: false,
     verifyAfterTransfer: false,
   });
   #loaded = $state(false);

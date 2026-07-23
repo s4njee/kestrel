@@ -53,6 +53,7 @@ async fn list_reports_files_dirs_symlinks_and_unicode() {
     std::fs::write(root.join("notes.txt"), b"hello").unwrap();
     std::fs::create_dir(root.join("sübdir")).unwrap();
     std::fs::write(root.join("naïve.txt"), b"x").unwrap();
+    #[cfg(unix)]
     std::os::unix::fs::symlink("notes.txt", root.join("link")).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
@@ -73,9 +74,12 @@ async fn list_reports_files_dirs_symlinks_and_unicode() {
     assert_eq!(by_name("sübdir").unwrap().kind, EntryKind::Dir);
     assert_eq!(by_name("naïve.txt").unwrap().kind, EntryKind::File);
 
-    let link = by_name("link").expect("link");
-    assert_eq!(link.kind, EntryKind::Symlink);
-    assert_eq!(link.link_target.as_deref(), Some("notes.txt"));
+    #[cfg(unix)]
+    {
+        let link = by_name("link").expect("link");
+        assert_eq!(link.kind, EntryKind::Symlink);
+        assert_eq!(link.link_target.as_deref(), Some("notes.txt"));
+    }
 }
 
 #[tokio::test]

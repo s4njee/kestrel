@@ -2,11 +2,11 @@
 #
 # Runs on every push and pull request across all three target OSes. Each job
 # lints and tests both the Rust workspace and the Svelte frontend, then does a
-# full (debug) Tauri build to catch bundling/packaging breakage early. Caches
-# cargo and the pnpm store to keep runs fast.
+# full (debug) Tauri compile to catch native/frontend integration breakage early.
+# Packaging is exercised by release.yml, where platform installers are built.
+# Caches cargo and the pnpm store to keep runs fast.
 #
-# The release pipeline (signed artifacts, updater manifest) is a separate
-# workflow added in E5-S4.
+# The installable artifact pipeline is a separate tagged-release workflow.
 
 name: CI
 
@@ -94,5 +94,7 @@ jobs:
       - name: Frontend tests
         run: pnpm test
 
-      - name: Tauri build (debug)
-        run: pnpm tauri build --debug --ci
+      # Packaging and updater signing belong to release.yml. Pull requests only
+      # need to prove that the native application and embedded frontend compile.
+      - name: Tauri build (debug, no bundle)
+        run: pnpm tauri build --debug --no-bundle --ci

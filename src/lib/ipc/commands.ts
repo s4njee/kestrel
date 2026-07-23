@@ -231,6 +231,21 @@ export function listEditSessions(): Promise<EditSession[]> {
   return invoke("list_edit_sessions");
 }
 
+/** Options for an FFmpeg encode that runs entirely on the remote host. */
+export interface EncodeVideoOptions {
+  sessionId: string;
+  inputPath: string;
+  outputPath: string;
+  startTime: string;
+  endTime: string | null;
+  burnSubtitles: boolean;
+}
+
+/** Clip and transcode a remote video to x265 CRF 18 with Opus audio. */
+export function encodeVideo(options: EncodeVideoOptions): Promise<void> {
+  return invoke("encode_video", { ...options });
+}
+
 /**
  * Answer a pending prompt (e.g. host-key trust).
  *

@@ -168,9 +168,11 @@ async fn unique_dest(item: &TransferItem, session: &Session) -> String {
 
 /// Determine how to resolve a destination-exists conflict for `item`.
 ///
-/// Returns `Some(resolution)` to proceed (Overwrite/Rename/Resume), or `None`
-/// to Skip. Prompts the user (AwaitingUser + conflict event) when the policy is
-/// Ask and no batch-wide choice applies.
+/// Returns `Some((resolution, had_conflict))` to proceed, or `None` to Skip.
+/// `had_conflict` distinguishes an explicit Overwrite from the no-conflict
+/// default so an unrelated `.part` can still be resumed. Prompts the user
+/// (AwaitingUser + conflict event) when the policy is Ask and no batch-wide
+/// choice applies.
 ///
 /// Arguments: `shared` — the queue state holding the batch and default policies
 /// and the pending-conflict channels; `item` — the transfer being resolved;
@@ -179,10 +181,10 @@ async fn resolve_conflict(
     shared: &QueueShared,
     item: &TransferItem,
     session: &Session,
-) -> Option<ConflictResolution> {
+) -> Option<(ConflictResolution, bool)> {
     let Some(existing) = dest_info(item.direction, &item.dest, session).await else {
         // No conflict.
-        return Some(ConflictResolution::Overwrite);
+        return Some((ConflictResolution::Overwrite, false));
     };
 
     let resolution = if let Some(sticky) = shared.batch_policy.get(&item.batch_id).map(|e| *e) {
@@ -212,7 +214,7 @@ async fn resolve_conflict(
 
     match resolution {
         ConflictResolution::Skip => None,
-        other => Some(other),
+        other => Some((other, true)),
     }
 }
 
@@ -323,18 +325,22 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
     }
 
     // Resolve any destination-exists conflict before transferring.
-    let resolution = match resolve_conflict(&shared, &item, &session).await {
-        Some(r) => r,
+    let (resolution, had_conflict) = match resolve_conflict(&shared, &item, &session).await {
+        Some(result) => result,
         None => {
             // Skip: leave the destination as-is.
             shared.emit_state(id, TransferState::Skipped, None);
             return;
         }
     };
+    // A prompted conflict moved the item from Running to AwaitingUser. Once a
+    // decision lets the copy continue, publish that transition immediately so
+    // the queue does not keep showing "waiting for user" during the transfer.
+    if item.state() == TransferState::AwaitingUser {
+        shared.emit_state(id, TransferState::Running, None);
+    }
     let resume_existing = match resolution {
-        ConflictResolution::Resume => {
-            Some(existing_dest_size(&item, &session).await)
-        }
+        ConflictResolution::Resume => Some(existing_dest_size(&item, &session).await),
         ConflictResolution::Rename => {
             item.set_effective_dest(unique_dest(&item, &session).await);
             None
@@ -359,18 +365,24 @@ async fn process(shared: Arc<QueueShared>, id: TransferId) {
             let local = LocalFs::new();
             let token = item.token();
             let dest = item.effective_dest();
-            // For a Resume resolution, append directly to the existing file;
-            // otherwise resume from any partial `.part`/remote bytes.
+            // An explicit Resume appends to the conflicting destination.
+            // Overwrite and Rename must start their first attempt at byte zero;
+            // only later retry attempts continue from bytes written by that
+            // attempt. In particular, an upload Overwrite must not mistake the
+            // pre-existing destination for its own resumable partial.
             let opts = match resume_existing {
                 Some(offset) => CopyOptions::resume_existing(offset),
-                None => match item.direction {
-                    Direction::Download => {
-                        CopyOptions::download().with_resume(resume_offset(&item, &remote).await)
+                None => {
+                    let offset = if attempt > 1 || !had_conflict {
+                        resume_offset(&item, &remote).await
+                    } else {
+                        0
+                    };
+                    match item.direction {
+                        Direction::Download => CopyOptions::download().with_resume(offset),
+                        Direction::Upload => CopyOptions::upload().with_resume(offset),
                     }
-                    Direction::Upload => {
-                        CopyOptions::upload().with_resume(resume_offset(&item, &remote).await)
-                    }
-                },
+                }
             };
             match item.direction {
                 Direction::Download => {

@@ -163,6 +163,7 @@ pub fn run() {
             commands::edit::start_edit_session,
             commands::edit::close_edit_session,
             commands::edit::list_edit_sessions,
+            commands::media::encode_video,
             commands::fileops::rename_entry,
             commands::fileops::delete_entries,
             commands::fileops::mkdir,

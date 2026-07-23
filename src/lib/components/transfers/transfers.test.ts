@@ -49,9 +49,47 @@ describe("transfers store", () => {
       error: null,
     });
     expect(transfers.activeCount).toBe(0);
+    expect(transfers.list[0]).toMatchObject({
+      state: "done",
+      bytes: 100,
+      size: 100,
+      rateBps: 0,
+    });
 
     transfers.clearCompleted();
     expect(transfers.list).toHaveLength(0);
+  });
+
+  it("finishes the progress bar from a terminal state without an intermediate sample", () => {
+    transfers.applyState({
+      id: "fast",
+      state: "awaitingUser",
+      name: "fast.bin",
+      size: 1024,
+      bytes: 0,
+      direction: "download",
+      error: null,
+    });
+    transfers.applyState({
+      id: "fast",
+      state: "running",
+      name: "fast.bin",
+      size: 1024,
+      bytes: 400,
+      direction: "download",
+      error: null,
+    });
+    transfers.applyState({
+      id: "fast",
+      state: "done",
+      name: "fast.bin",
+      size: 1024,
+      bytes: 1024,
+      direction: "download",
+      error: null,
+    });
+
+    expect(transfers.list[0]).toMatchObject({ state: "done", bytes: 1024, size: 1024 });
   });
 });
 
@@ -93,6 +131,46 @@ describe("TransferRow", () => {
     });
     expect(container.textContent).toContain("100%");
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  it("shows live indeterminate progress and transferred bytes when size is unknown", () => {
+    const { container } = render(TransferRow, {
+      props: {
+        transfer: transfer({
+          name: "photos",
+          state: "running",
+          bytes: 2 * 1024 * 1024,
+          size: 0,
+        }),
+        onCancel: vi.fn(),
+      },
+    });
+
+    const progress = screen.getByRole("progressbar", {
+      name: "Transfer progress for photos",
+    });
+    expect(progress).not.toHaveAttribute("aria-valuenow");
+    expect(progress).toHaveAttribute("aria-valuetext", "2.0 MB transferred; total size unknown");
+    expect(progress).toHaveClass("indeterminate");
+    expect(container.textContent).toContain("···");
+    expect(container.textContent).toContain("2.0 MB");
+    expect(container.textContent).not.toContain("0%");
+  });
+
+  it("finishes an unknown-size folder row at 100%", () => {
+    render(TransferRow, {
+      props: {
+        transfer: transfer({ name: "photos", state: "done", bytes: 4096, size: 0 }),
+        onCancel: vi.fn(),
+      },
+    });
+
+    const progress = screen.getByRole("progressbar", {
+      name: "Transfer progress for photos",
+    });
+    expect(progress).toHaveAttribute("aria-valuenow", "100");
+    expect(progress).toHaveAttribute("aria-valuetext", "Complete");
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 
   it("shows a resume button (not pause) when paused", async () => {

@@ -449,6 +449,7 @@ async fn recursive_download_transfers_tree_and_skips_symlinks() {
     std::fs::create_dir_all(root.join("proj/sub")).unwrap();
     std::fs::write(root.join("proj/a.txt"), b"aaa").unwrap();
     std::fs::write(root.join("proj/sub/b.txt"), b"bbbb").unwrap();
+    #[cfg(unix)]
     std::os::unix::fs::symlink("a.txt", root.join("proj/link")).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
@@ -492,21 +493,24 @@ async fn run_with_conflict_resolution(
     ids: &[TransferId],
     resolution: sftpapp_engine::ConflictResolution,
     apply_to_all: bool,
-) {
+) -> Vec<(TransferId, TransferState)> {
     let mut terminal = std::collections::HashSet::new();
+    let mut states = Vec::new();
     while terminal.len() < ids.len() {
         match events.recv().await {
             Ok(EngineEvent::TransferConflict { id, .. }) if ids.contains(&id) => {
                 engine.resolve_conflict(id, resolution, apply_to_all);
             }
-            Ok(EngineEvent::TransferStateChanged { id, state, .. })
-                if ids.contains(&id) && state.is_terminal() =>
-            {
-                terminal.insert(id);
+            Ok(EngineEvent::TransferStateChanged { id, state, .. }) if ids.contains(&id) => {
+                states.push((id, state));
+                if state.is_terminal() {
+                    terminal.insert(id);
+                }
             }
             _ => {}
         }
     }
+    states
 }
 
 fn conflict_engine(dir: &tempfile::TempDir) -> Arc<Engine> {
@@ -539,8 +543,95 @@ async fn conflict_overwrite_replaces_existing() {
         dest: dest.to_string_lossy().into_owned(),
         size: 7,
     }]);
-    run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Overwrite, false).await;
+    let states = run_with_conflict_resolution(
+        &engine,
+        &mut events,
+        &ids,
+        ConflictResolution::Overwrite,
+        false,
+    )
+    .await;
+    let awaiting = states
+        .iter()
+        .position(|(event_id, state)| *event_id == ids[0] && *state == TransferState::AwaitingUser)
+        .unwrap();
+    assert!(
+        states[awaiting + 1..]
+            .iter()
+            .any(|(event_id, state)| *event_id == ids[0] && *state == TransferState::Running),
+        "overwrite must transition from AwaitingUser back to Running"
+    );
     assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"NEWDATA");
+}
+
+#[tokio::test]
+async fn upload_conflict_overwrite_starts_from_zero() {
+    use sftpapp_engine::ConflictResolution;
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.bin"), b"oldcontent").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.bin");
+    std::fs::write(&source, b"NEWDATA").unwrap();
+    let engine = conflict_engine(&dir);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Upload,
+        src: source.to_string_lossy().into_owned(),
+        dest: "/f.bin".to_string(),
+        size: 7,
+    }]);
+    let _ = run_with_conflict_resolution(
+        &engine,
+        &mut events,
+        &ids,
+        ConflictResolution::Overwrite,
+        false,
+    )
+    .await;
+
+    assert_eq!(std::fs::read(server.root().join("f.bin")).unwrap(), b"NEWDATA");
+    assert_eq!(
+        engine.transfer_item(ids[0]).unwrap().bytes_done.load(std::sync::atomic::Ordering::Relaxed),
+        7
+    );
+}
+
+#[tokio::test]
+async fn upload_conflict_resume_counts_existing_bytes() {
+    use sftpapp_engine::ConflictResolution;
+    let server = support::start_password_server("u", "p").await;
+    std::fs::write(server.root().join("f.bin"), b"NEW").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.bin");
+    std::fs::write(&source, b"NEWDATA").unwrap();
+    let engine = conflict_engine(&dir);
+    let mut events = engine.subscribe();
+    let id = connect(&engine, server.port).await;
+
+    let ids = engine.enqueue_transfers(vec![TransferRequest {
+        session_id: id,
+        direction: Direction::Upload,
+        src: source.to_string_lossy().into_owned(),
+        dest: "/f.bin".to_string(),
+        size: 7,
+    }]);
+    let _ = run_with_conflict_resolution(
+        &engine,
+        &mut events,
+        &ids,
+        ConflictResolution::Resume,
+        false,
+    )
+    .await;
+
+    assert_eq!(std::fs::read(server.root().join("f.bin")).unwrap(), b"NEWDATA");
+    assert_eq!(
+        engine.transfer_item(ids[0]).unwrap().bytes_done.load(std::sync::atomic::Ordering::Relaxed),
+        7
+    );
 }
 
 #[tokio::test]
@@ -563,7 +654,9 @@ async fn conflict_skip_leaves_existing() {
         dest: dest.to_string_lossy().into_owned(),
         size: 7,
     }]);
-    run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Skip, false).await;
+    let _ =
+        run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Skip, false)
+            .await;
     assert_eq!(engine.transfer_item(ids[0]).unwrap().state(), TransferState::Skipped);
     assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"oldcontent");
 }
@@ -588,7 +681,14 @@ async fn conflict_rename_writes_new_name() {
         dest: dest.to_string_lossy().into_owned(),
         size: 7,
     }]);
-    run_with_conflict_resolution(&engine, &mut events, &ids, ConflictResolution::Rename, false).await;
+    let _ = run_with_conflict_resolution(
+        &engine,
+        &mut events,
+        &ids,
+        ConflictResolution::Rename,
+        false,
+    )
+    .await;
     // Original untouched; new file " (1)" created with new content.
     assert_eq!(tokio::fs::read(&dest).await.unwrap(), b"oldcontent");
     let renamed = dir.path().join("out (1).txt");

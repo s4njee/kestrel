@@ -37,6 +37,7 @@
     startEditSession,
     closeEditSession,
     listEditSessions,
+    encodeVideo,
     type Bookmark,
     type SessionInfo,
     type TransferDirection,
@@ -61,6 +62,7 @@
   import PermissionsDialog from "$lib/components/dialogs/PermissionsDialog.svelte";
   import DeleteConfirmDialog from "$lib/components/dialogs/DeleteConfirmDialog.svelte";
   import InputDialog from "$lib/components/dialogs/InputDialog.svelte";
+  import EncodeDialog, { type EncodeSettings } from "$lib/components/dialogs/EncodeDialog.svelte";
   import Toolbar from "$lib/components/layout/Toolbar.svelte";
   import StatusBar from "$lib/components/layout/StatusBar.svelte";
   import SplitPane from "$lib/components/layout/SplitPane.svelte";
@@ -94,9 +96,6 @@
 
   let active = $derived(sessions.active);
   let connected = $derived(active !== null);
-  let connectionLabel = $derived(
-    active ? `${active.info.username}@${active.info.host}` : "not connected",
-  );
   // Topbar host label (with port) and session-detail chip.
   let hostLabel = $derived(
     active ? `${active.info.username}@${active.info.host}:${active.info.port}` : "not connected",
@@ -410,6 +409,7 @@
   let contextMenu = $state<{ x: number; y: number; kind: PaneKind; entry: DirEntry } | null>(null);
   let permsTarget = $state<{ kind: PaneKind; path: string; mode: number } | null>(null);
   let deleteTarget = $state<{ kind: PaneKind; entries: DirEntry[] } | null>(null);
+  let encodeTarget = $state<DirEntry | null>(null);
   let inputDialog = $state<{
     title: string;
     label: string;
@@ -641,6 +641,34 @@
     refresh(kind);
   }
 
+  /** Suggest an MKV output beside the source, preserving the original basename. */
+  function encodedOutputPath(path: string): string {
+    const slash = path.lastIndexOf("/");
+    const dot = path.lastIndexOf(".");
+    const stemEnd = dot > slash ? dot : path.length;
+    return `${path.slice(0, stemEnd)}.x265.mkv`;
+  }
+
+  /** Start a long-running encode and report its eventual result without blocking the UI. */
+  function runEncode(settings: EncodeSettings): void {
+    const target = encodeTarget;
+    const sessionId = sessions.active?.info.id;
+    encodeTarget = null;
+    if (!target || !sessionId) return;
+
+    toasts.info(`Encoding ${target.name} on the remote host…`);
+    void encodeVideo({
+      sessionId,
+      inputPath: target.path,
+      ...settings,
+    })
+      .then(() => {
+        toasts.info(`Encode complete: ${settings.outputPath}`);
+        refresh("remote");
+      })
+      .catch((error) => toasts.error(`FFmpeg encode failed: ${String(error)}`));
+  }
+
   /**
    * Open the context menu for a right-clicked entry.
    *
@@ -670,6 +698,11 @@
       {
         label: "Edit",
         action: () => void editRemoteFile(entry),
+        disabled: kind !== "remote" || entry.kind !== "file" || !connected,
+      },
+      {
+        label: "Encode with FFmpeg…",
+        action: () => (encodeTarget = entry),
         disabled: kind !== "remote" || entry.kind !== "file" || !connected,
       },
       { separator: true },
@@ -957,7 +990,6 @@
 
   <TransferPanel />
   <StatusBar
-    {connectionLabel}
     sessions={sessions.entries}
     transferCount={transfers.activeCount}
     sessionId={active?.info.id ?? null}
@@ -1011,6 +1043,14 @@
     y={contextMenu.y}
     items={menuItems(contextMenu.kind, contextMenu.entry)}
     onClose={() => (contextMenu = null)}
+  />
+{/if}
+{#if encodeTarget}
+  <EncodeDialog
+    inputPath={encodeTarget.path}
+    initialOutputPath={encodedOutputPath(encodeTarget.path)}
+    onSubmit={runEncode}
+    onCancel={() => (encodeTarget = null)}
   />
 {/if}
 {#if permsTarget}

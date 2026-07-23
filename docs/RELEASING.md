@@ -1,9 +1,10 @@
 # Releasing sftpapp
 
 This document covers signing, the auto-updater, and how to cut a release. The
-release pipeline itself (GitHub Actions matrix build → signed draft release) is
-in `.github/workflows/release.yml` (E5-S4); this file explains the secrets and
-keys it needs.
+release pipeline itself (GitHub Actions platform builds → draft release) is in
+`.github/workflows/release.yml` (E5-S4). The current automated release always
+produces unsigned installer artifacts; updater and OS signing are documented
+below for when a signed distribution pipeline is enabled.
 
 > **Never commit private keys or certificates.** They live only in CI secrets
 > and on maintainer machines. The repo contains only the **public** updater key
@@ -59,9 +60,11 @@ Then:
    - `TAURI_SIGNING_PRIVATE_KEY` — the private key **contents** (not a path).
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — its password (empty string if none).
 
-The build reads these env vars automatically when `bundle.createUpdaterArtifacts`
-is `true` (it is), producing a signed `latest.json` plus per-platform update
-bundles.
+The default Tauri config has `bundle.createUpdaterArtifacts` enabled for signed
+maintainer builds. The tagged release workflow merges
+`.github/tauri.release.conf.json`, which disables updater artifacts so missing
+private keys cannot block the requested ZIP and EXE. Remove that override only
+after both updater secrets are configured in Actions.
 
 > ⚠️ If the private key or its password is lost, existing installs can no longer
 > be updated — you must ship a new pubkey in a fresh install. Back it up.
@@ -75,9 +78,9 @@ https://github.com/<owner>/<repo>/releases/latest/download/latest.json
 ```
 
 Update the `<owner>/<repo>` in `tauri.conf.json` to the real repository before
-the first release. The release job uploads `latest.json` (and the signed
-bundles) as release assets, so `…/releases/latest/download/latest.json` always
-resolves to the newest version.
+enabling updater artifacts. The current release workflow does not upload
+`latest.json`; auto-update remains inactive until the updater signing override
+described above is removed and the workflow publishes its signed bundles.
 
 ## 3. Platform code-signing
 
@@ -87,7 +90,8 @@ work, but is required for a clean install experience.
 
 ### macOS — Developer ID + notarization
 
-Set these CI secrets (consumed by `tauri-action`):
+For a future signed pipeline, configure/import a Developer ID certificate and
+provide these values to the Tauri build:
 
 - `APPLE_CERTIFICATE` — base64 of the Developer ID Application `.p12`.
 - `APPLE_CERTIFICATE_PASSWORD` — the `.p12` password.
@@ -118,13 +122,13 @@ integrity guarantee.
 ## 4. Cutting a release
 
 1. Bump `version` in `src-tauri/tauri.conf.json` and `package.json`.
-2. Ensure all signing secrets are present in the repo's Actions secrets.
+2. Commit the version bump and ensure CI is green.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-4. The release workflow builds the `[macos-14, ubuntu-22.04, windows-latest]`
-   matrix, signs artifacts, and creates a **draft** GitHub release with the
-   bundles + `latest.json`.
-5. Review the draft, then publish. Existing installs pick up the update on their
-   next check.
+4. The release workflow builds a universal macOS application ZIP and a Windows
+   x64 NSIS installer EXE, then creates a **draft** GitHub release containing
+   both artifacts. The workflow disables updater artifacts so missing updater
+   signing secrets cannot prevent installer releases.
+5. Download and smoke-test both assets from the draft, then publish it.
 
 ## 5. Local build check (no signing)
 

@@ -31,13 +31,31 @@
   let paused = $derived(transfer.state === "paused");
   let done = $derived(transfer.state === "done");
   let failed = $derived(transfer.state === "failed" || transfer.state === "failedVerification");
+  let knownSize = $derived(transfer.size > 0);
+  let indeterminate = $derived(!knownSize && active);
   let percent = $derived(
-    transfer.size > 0 ? Math.min(100, Math.round((transfer.bytes / transfer.size) * 100)) : 0,
+    knownSize ? Math.min(100, Math.round((transfer.bytes / transfer.size) * 100)) : done ? 100 : 0,
   );
   let arrow = $derived(transfer.direction === "upload" ? "↑" : "↓");
+  let sizeLabel = $derived(
+    knownSize ? formatBytes(transfer.size) : transfer.bytes > 0 ? formatBytes(transfer.bytes) : "—",
+  );
+  let progressText = $derived(
+    knownSize
+      ? `${percent}%`
+      : done
+        ? "Complete"
+        : `${formatBytes(transfer.bytes)} transferred; total size unknown`,
+  );
 
   // 20-cell ASCII progress bar (█ filled, ░ empty).
   let bar = $derived.by(() => {
+    if (!knownSize) {
+      if (done) return "█".repeat(20);
+      // Tar-streamed folders do not have a known total. A striped bar, animated
+      // below while running, communicates activity without inventing a percent.
+      return "████░░░░".repeat(3).slice(0, 20);
+    }
     const filled = Math.max(0, Math.min(20, Math.round(percent / 5)));
     return "█".repeat(filled) + "░".repeat(20 - filled);
   });
@@ -46,11 +64,19 @@
 <div class="q-row" data-state={transfer.state}>
   <span class="q-arrow" class:done>{arrow}</span>
   <span class="q-file" title={transfer.name}>{transfer.name}</span>
-  <span class="q-bracket">[</span><span class="q-bar" class:done>{bar}</span><span class="q-bracket"
-    >]</span
-  >
-  <span class="q-pct" class:done class:failed>{percent}%</span>
-  <span class="q-size">{formatBytes(transfer.size)}</span>
+  <span class="q-bracket">[</span><span
+    class="q-bar"
+    class:done
+    class:indeterminate={indeterminate && transfer.state === "running"}
+    role="progressbar"
+    aria-label={`Transfer progress for ${transfer.name}`}
+    aria-valuemin="0"
+    aria-valuemax="100"
+    aria-valuenow={knownSize || done ? percent : undefined}
+    aria-valuetext={progressText}>{bar}</span
+  ><span class="q-bracket">]</span>
+  <span class="q-pct" class:done class:failed>{indeterminate ? "···" : `${percent}%`}</span>
+  <span class="q-size" title={knownSize ? "Total size" : "Transferred so far"}>{sizeLabel}</span>
   <span class="q-meta">
     {#if transfer.state === "running"}
       {formatRate(transfer.rateBps)}
@@ -113,6 +139,22 @@
   }
   .q-bar.done {
     color: var(--dim);
+  }
+  .q-bar.indeterminate {
+    animation: transfer-pulse 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes transfer-pulse {
+    from {
+      opacity: 0.35;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .q-bar.indeterminate {
+      animation: none;
+    }
   }
   .q-pct {
     width: 42px;

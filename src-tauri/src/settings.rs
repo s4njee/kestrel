@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 /// On-disk schema version for `settings.json`.
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 /// The lowest and highest transfer concurrency we allow.
 const MIN_CONCURRENCY: u8 = 1;
@@ -37,8 +37,9 @@ pub struct Settings {
     #[serde(default)]
     pub show_hidden: bool,
     /// Whether recursive directory transfers may use tar acceleration when the
-    /// remote host supports it (E8-S2). Off falls back to per-file transfers.
-    #[serde(default = "default_true")]
+    /// remote host supports it (E8-S2). Off — the default — creates one queue
+    /// item per file so individual progress remains visible.
+    #[serde(default)]
     pub tar_acceleration: bool,
     /// Whether successful single-file transfers should compare local and remote
     /// checksums when the remote host offers a supported hash tool (E8-S3).
@@ -46,16 +47,10 @@ pub struct Settings {
     pub verify_after_transfer: bool,
 }
 
-/// Serde default for boolean settings that are on unless disabled.
-///
-/// Returns: `true`.
-fn default_true() -> bool {
-    true
-}
-
 impl Default for Settings {
     /// Sensible first-run defaults: 3 concurrent transfers, prompt on conflict,
-    /// no pinned local dir, hidden files/verification off, tar acceleration on.
+    /// no pinned local dir, and hidden files, verification, and tar acceleration
+    /// off. Keeping tar acceleration off preserves per-file folder progress.
     ///
     /// Returns: the default [`Settings`].
     fn default() -> Self {
@@ -64,7 +59,7 @@ impl Default for Settings {
             default_conflict: "ask".to_string(),
             default_local_dir: None,
             show_hidden: false,
-            tar_acceleration: true,
+            tar_acceleration: false,
             verify_after_transfer: false,
         }
     }
@@ -105,6 +100,14 @@ impl SettingsStore {
         let mut settings = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice::<SettingsFile>(&bytes) {
                 Ok(file) if file.version == SCHEMA_VERSION => file.settings,
+                // Version 1 shipped tar acceleration enabled by default, which
+                // collapsed recursive transfers into one folder row. Migrate
+                // once to the new per-file-progress default while preserving
+                // every other preference.
+                Ok(mut file) if file.version == 1 => {
+                    file.settings.tar_acceleration = false;
+                    file.settings
+                }
                 Ok(file) => {
                     tracing::warn!(version = file.version, "unsupported settings.json version");
                     Settings::default()
@@ -127,7 +130,10 @@ impl SettingsStore {
     ///
     /// Returns: a clone of the settings.
     pub fn get(&self) -> Settings {
-        self.current.lock().expect("settings mutex poisoned").clone()
+        self.current
+            .lock()
+            .expect("settings mutex poisoned")
+            .clone()
     }
 
     /// Replace and persist the settings (normalizing first).
@@ -161,7 +167,8 @@ impl SettingsStore {
             let _ = std::fs::create_dir_all(parent);
         }
         let tmp = self.path.with_extension("json.tmp");
-        if let Err(e) = std::fs::write(&tmp, &json).and_then(|()| std::fs::rename(&tmp, &self.path)) {
+        if let Err(e) = std::fs::write(&tmp, &json).and_then(|()| std::fs::rename(&tmp, &self.path))
+        {
             tracing::warn!(error = %e, "failed to write settings.json");
         }
     }
@@ -195,13 +202,14 @@ mod tests {
         });
         assert_eq!(saved.concurrency, 6);
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("\"version\": 1"));
+        assert!(text.contains("\"version\": 2"));
         // Reloading sees the same settings.
         assert_eq!(SettingsStore::load(path).get(), saved);
     }
 
     /// A settings.json written before `tar_acceleration` existed must still
-    /// load, defaulting the new field to on rather than failing the whole file.
+    /// load, defaulting the new field to off so folder files stay individually
+    /// visible rather than failing the whole file.
     #[test]
     fn older_settings_file_without_tar_field_still_loads() {
         let dir = tempfile::tempdir().unwrap();
@@ -219,9 +227,32 @@ mod tests {
         assert!(loaded.show_hidden);
         assert!(!loaded.verify_after_transfer);
         assert!(
-            loaded.tar_acceleration,
-            "a missing tar_acceleration must default to enabled"
+            !loaded.tar_acceleration,
+            "a missing tar_acceleration must preserve per-file progress"
         );
+    }
+
+    /// Version 1 enabled tar acceleration by default. Migrate that persisted
+    /// value off once so existing users also receive individual file rows.
+    #[test]
+    fn version_one_tar_default_migrates_to_per_file_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"settings":{"concurrency":5,"defaultConflict":"rename",
+                "defaultLocalDir":"/tmp","showHidden":true,"tarAcceleration":true,
+                "verifyAfterTransfer":true}}"#,
+        )
+        .unwrap();
+
+        let loaded = SettingsStore::load(path).get();
+        assert_eq!(loaded.concurrency, 5);
+        assert_eq!(loaded.default_conflict, "rename");
+        assert_eq!(loaded.default_local_dir.as_deref(), Some("/tmp"));
+        assert!(loaded.show_hidden);
+        assert!(loaded.verify_after_transfer);
+        assert!(!loaded.tar_acceleration);
     }
 
     /// Concurrency is clamped into 1..=8 on save.
@@ -229,8 +260,24 @@ mod tests {
     fn concurrency_is_clamped() {
         let dir = tempfile::tempdir().unwrap();
         let store = SettingsStore::load(dir.path().join("settings.json"));
-        assert_eq!(store.save(Settings { concurrency: 99, ..Settings::default() }).concurrency, 8);
-        assert_eq!(store.save(Settings { concurrency: 0, ..Settings::default() }).concurrency, 1);
+        assert_eq!(
+            store
+                .save(Settings {
+                    concurrency: 99,
+                    ..Settings::default()
+                })
+                .concurrency,
+            8
+        );
+        assert_eq!(
+            store
+                .save(Settings {
+                    concurrency: 0,
+                    ..Settings::default()
+                })
+                .concurrency,
+            1
+        );
     }
 
     /// A malformed settings file falls back to the defaults.

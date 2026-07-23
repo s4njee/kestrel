@@ -1,14 +1,8 @@
-# release.yml — Build signed release artifacts on a version tag.
+# release.yml — Build installable desktop artifacts on a version tag.
 #
-# On `v*` tags, builds the desktop matrix with tauri-action and publishes a
-# DRAFT GitHub Release carrying the signed bundles (macOS universal .dmg, Windows
-# NSIS .exe, Linux AppImage/.deb/.rpm) plus the updater `latest.json`. A human
-# reviews and publishes the draft; existing installs then auto-update (see
-# docs/RELEASING.md).
-#
-# Signing is driven entirely by repository secrets (updater key + per-OS
-# code-signing). Without them the build still runs but produces unsigned
-# artifacts — do that only for pre-release testing.
+# A v* tag produces exactly the two primary download formats: a universal
+# macOS .app wrapped in a .zip, and a Windows x64 NSIS installer (.exe). The
+# final job collects both builds into one draft GitHub Release.
 
 name: Release
 
@@ -17,50 +11,17 @@ on:
     tags:
       - "v*"
 
-# tauri-action needs write access to create the release.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: release (${{ matrix.platform }})
-    runs-on: ${{ matrix.platform }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-14
-            args: "--target universal-apple-darwin"
-            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
-          - platform: ubuntu-22.04
-            args: ""
-            rust-targets: ""
-          - platform: windows-latest
-            args: ""
-            rust-targets: ""
+  macos:
+    name: macOS universal ZIP
+    runs-on: macos-14
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            build-essential \
-            libssl-dev
-
-      # aws-lc-sys (russh -> aws-lc-rs) assembles its crypto primitives with
-      # NASM on Windows x86_64 and hard-fails the build if it is missing.
-      - name: Install NASM (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/setup-nasm@v1
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -76,7 +37,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust-targets }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
@@ -86,27 +47,122 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and publish (draft release)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signing (required for signed update artifacts).
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code-signing + notarization.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code-signing (OV/EV cert path; Azure Trusted Signing is
-          # configured separately if used).
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      - name: Build universal macOS application
+        run: >-
+          pnpm tauri build --ci
+          --target universal-apple-darwin
+          --bundles app
+          --config .github/tauri.release.conf.json
+
+      - name: Package macOS ZIP
+        shell: bash
+        run: |
+          app_path="$(find target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "Tauri did not produce a macOS .app bundle" >&2
+            exit 1
+          fi
+          zip_path="$RUNNER_TEMP/kestrel-${GITHUB_REF_NAME}-macos-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_path"
+          test -s "$zip_path"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "sftpapp ${{ github.ref_name }}"
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          name: macos-universal-zip
+          path: ${{ runner.temp }}/kestrel-${{ github.ref_name }}-macos-universal.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64 EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows NSIS installer
+        run: >-
+          pnpm tauri build --ci
+          --bundles nsis
+          --config .github/tauri.release.conf.json
+
+      - name: Normalize Windows EXE name
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path target -Recurse -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Tauri did not produce a Windows NSIS installer"
+          }
+          $output = Join-Path $env:RUNNER_TEMP "kestrel-$env:GITHUB_REF_NAME-windows-x64.exe"
+          Copy-Item $installer.FullName $output
+          if ((Get-Item $output).Length -eq 0) {
+            throw "Windows installer is empty"
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-exe
+          path: ${{ runner.temp }}/kestrel-${{ github.ref_name }}-windows-x64.exe
+          if-no-files-found: error
+
+  publish:
+    name: Create draft GitHub Release
+    needs: [macos, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release contents
+        shell: bash
+        run: |
+          test -s "release-assets/kestrel-${GITHUB_REF_NAME}-macos-universal.zip"
+          test -s "release-assets/kestrel-${GITHUB_REF_NAME}-windows-x64.exe"
+
+      - name: Create draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/* \
+              --verify-tag \
+              --draft \
+              --generate-notes \
+              --title "Kestrel $GITHUB_REF_NAME"
+          fi

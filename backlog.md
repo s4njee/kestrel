@@ -5,9 +5,9 @@ parity with mature clients (FileZilla, WinSCP, Cyberduck) and toward a real 1.0.
 
 This file is deliberately **complementary** to the Epic 8 backlog in
 [`tasks.md`](tasks.md) (`## Epic 8 — Novel features`). Epic 8 tracks
-*differentiation* ideas that lean on Kestrel's two unusual assets — the live
+_differentiation_ ideas that lean on Kestrel's two unusual assets — the live
 PTY/exec channel and the engine-side filesystem watcher. This file tracks
-*table-stakes* features that ordinary users expect and notice missing. Where the
+_table-stakes_ features that ordinary users expect and notice missing. Where the
 two overlap, this file points at the Epic 8 story rather than restating it.
 
 Nothing here is committed work. Items are grouped by theme, each with a rough
@@ -78,7 +78,7 @@ cash that promise in.
   owner); persist per pane.
 - **Copy path / copy URL** (S) — copy a file's remote path or a `sftp://` URL.
 - **Duplicate file** (S) — server-side copy where possible, else round-trip.
-- **Create symlink** (S) — listings already *show* symlink targets (never
+- **Create symlink** (S) — listings already _show_ symlink targets (never
   followed); add a create action. Keep the never-follow invariant intact.
 - **Recursive chmod** (S) — apply permission changes down a tree; extends the
   existing `PermissionsDialog`.
@@ -93,7 +93,7 @@ cash that promise in.
 - **"Open terminal here"** (S) — open the [shell] tab already `cd`'d into the
   focused pane directory. Natural companion to ↔ **E8-S5** (shell↔pane sync).
 - **"Reveal in Finder/Explorer"** (S) — for the local pane.
-- **Drag files *out* to the OS** — noted as a hard Tauri limitation in the
+- **Drag files _out_ to the OS** — noted as a hard Tauri limitation in the
   README; track it so the constraint is visible, and revisit if Tauri adds it.
 
 ## 5. Security & auth

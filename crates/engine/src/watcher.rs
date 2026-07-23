@@ -185,6 +185,10 @@ mod tests {
         watcher.watch(b.path().to_path_buf()).unwrap();
         assert_eq!(watcher.current().as_deref(), Some(b.path()));
 
+        // Some backends report watch/unwatch bookkeeping as filesystem events.
+        // Let those settle before asserting on changes made by this test.
+        while rx.recv_timeout(Duration::from_millis(200)).is_ok() {}
+
         // A change in the now-unwatched directory must not notify.
         std::fs::write(a.path().join("stale.txt"), b"x").unwrap();
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());

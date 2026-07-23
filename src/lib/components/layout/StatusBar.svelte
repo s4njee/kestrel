@@ -8,7 +8,7 @@
     switching host tabs returns to that host's live shell with its scrollback
     intact rather than opening a fresh one.
   - **log** — the tagged session stream (Status/Command/Response) from the logs
-    store, with a blinking prompt line. Read-only.
+    store. Read-only.
 
   Both stay mounted while connected so switching tabs never kills the running
   shell or loses scrollback; the inactive one is just hidden.
@@ -21,8 +21,7 @@
   - onCwd?: (cwd) => void     — forwarded from Terminal: the shell announced a
     working directory. The `[follow]` toggle beside the tabs decides whether the
     shell drives the remote pane; the shell itself is never written to.
-  - connectionLabel: string   — e.g. "not connected" or "user@host".
-  - transferCount: number     — active transfers (shown on the log's prompt).
+  - transferCount: number     — active transfers (shown beside the tabs).
   - sessions: SessionEntry[]  — every connected session; each gets a terminal.
   - sessionId: string | null  — the active session, whose terminal is shown.
 -->
@@ -33,22 +32,18 @@
   import type { SessionEntry } from "$lib/stores/sessions.svelte";
 
   interface Props {
-    connectionLabel: string;
     transferCount: number;
     sessions?: SessionEntry[];
     sessionId: string | null;
     onCwd?: (cwd: string) => void;
   }
 
-  let { connectionLabel, transferCount, sessions = [], sessionId, onCwd }: Props = $props();
+  let { transferCount, sessions = [], sessionId, onCwd }: Props = $props();
 
   /** Which tab is showing. */
   let tab = $state<"shell" | "log">("shell");
 
   let logEl = $state<HTMLDivElement | null>(null);
-
-  // The log's prompt reflects the active connection (or a local shell when idle).
-  let prompt = $derived(connectionLabel === "not connected" ? "local" : connectionLabel);
 
   // Auto-scroll the log to the newest line whenever it grows.
   $effect(() => {
@@ -166,10 +161,6 @@
     {#each logs.lines as line (line.id)}
       <div class="log-line {line.cls}"><span class="t">{line.tag}</span> {line.text}</div>
     {/each}
-    <div class="prompt-line">
-      <span class="who">{prompt}</span>:~$
-      <span class="caret">&nbsp;</span>
-    </div>
   </div>
 </section>
 
@@ -288,22 +279,5 @@
   }
   .log-line.err {
     color: var(--danger);
-  }
-  .prompt-line {
-    color: var(--dim);
-    margin-top: 2px;
-  }
-  .who {
-    color: var(--bright);
-  }
-  .caret {
-    background: var(--accent);
-    color: var(--con);
-    animation: blink 1.1s steps(1) infinite;
-  }
-  @keyframes blink {
-    50% {
-      background: transparent;
-    }
   }
 </style>

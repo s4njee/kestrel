@@ -73,7 +73,18 @@ class TransfersStore {
     const existing = this.#list.find((t) => t.id === update.id);
     if (existing) {
       this.#list = this.#list.map((t) =>
-        t.id === update.id ? { ...t, state: update.state, error: update.error } : t,
+        t.id === update.id
+          ? {
+              ...t,
+              direction: update.direction,
+              name: update.name,
+              state: update.state,
+              bytes: update.bytes,
+              size: update.size,
+              rateBps: update.state === "running" ? t.rateBps : 0,
+              error: update.error,
+            }
+          : t,
       );
     } else {
       this.#list = [

@@ -28,6 +28,7 @@ pub mod exec;
 pub mod fs;
 pub mod hostkey;
 pub mod integrity;
+pub mod media;
 pub mod pathsafe;
 pub mod search;
 pub mod session;

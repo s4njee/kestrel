@@ -20,7 +20,7 @@ function s(over: Partial<Settings> = {}): Settings {
     defaultConflict: "ask",
     defaultLocalDir: null,
     showHidden: false,
-    tarAcceleration: true,
+    tarAcceleration: false,
     verifyAfterTransfer: false,
     ...over,
   };

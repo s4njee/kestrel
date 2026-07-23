@@ -101,12 +101,12 @@
     </label>
 
     <label class="check">
-      <input type="checkbox" bind:checked={tarAcceleration} /> Tar-accelerate folder transfers
+      <input type="checkbox" bind:checked={tarAcceleration} /> Combine folder into one fast transfer
     </label>
     <p class="note">
-      Streams a whole folder as one archive when the server has <code>tar</code> — much faster for many
-      small files. Falls back to per-file transfers automatically. Per-file conflict prompts don't apply
-      in this mode.
+      Opt-in: streams a whole folder as one archive when the server has <code>tar</code>. This can
+      be much faster for many small files, but the transfer queue shows one folder row instead of
+      individual file progress, and per-file conflict prompts don't apply.
     </p>
 
     <label class="check">
