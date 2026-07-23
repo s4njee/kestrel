@@ -100,7 +100,7 @@ pub trait SecretStore: Send + Sync {
 }
 
 /// The service name under which all entries are grouped in the OS keychain.
-const SERVICE: &str = "io.sanjee.sftpapp";
+const SERVICE: &str = "io.sanjee.kestrel";
 
 /// The real keychain-backed store.
 ///

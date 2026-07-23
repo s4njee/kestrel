@@ -1,6 +1,6 @@
 //! commands/media.rs — Run remote FFmpeg encodes.
 
-use sftpapp_engine::media::EncodeOptions;
+use kestrel_engine::media::EncodeOptions;
 use tauri::State;
 use uuid::Uuid;
 

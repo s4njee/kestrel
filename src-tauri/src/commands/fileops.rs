@@ -4,7 +4,7 @@
 //! engine's `remove_recursive`; a non-recursive delete of a non-empty directory
 //! fails (the trait's `remove_dir` rejects it).
 
-use sftpapp_engine::{remove_recursive, EntryKind, RemoteFs};
+use kestrel_engine::{remove_recursive, EntryKind, RemoteFs};
 use tauri::State;
 use uuid::Uuid;
 

@@ -60,4 +60,4 @@ jobs:
           exit 1
 
       - name: Run fidelity tests
-        run: cargo test -p sftpapp-engine --features docker-tests --test docker -- --nocapture
+        run: cargo test -p kestrel-engine --features docker-tests --test docker -- --nocapture

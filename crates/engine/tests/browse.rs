@@ -8,7 +8,7 @@ mod support;
 
 use std::sync::Arc;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     AuthMethod, ConnectParams, Engine, EngineEvent, EntryKind, KnownHosts, PromptReply, RemoteFs,
     Secret, SessionId,
 };

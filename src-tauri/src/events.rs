@@ -6,7 +6,7 @@
 //! in Epic 2.
 
 use serde::Serialize;
-use sftpapp_engine::{Direction, Engine, EngineEvent, TransferState};
+use kestrel_engine::{Direction, Engine, EngineEvent, TransferState};
 
 /// Session lifecycle / prompt events sent to the webview.
 #[derive(Debug, Clone, Serialize)]

@@ -2991,8 +2991,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sftpapp"
-version = "0.1.0"
+name = "kestrel"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

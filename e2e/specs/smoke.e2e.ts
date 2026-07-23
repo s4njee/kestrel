@@ -10,9 +10,9 @@ const PORT = process.env.E2E_PORT ?? "2222";
 const USER = process.env.E2E_USER ?? "user";
 const PASS = process.env.E2E_PASS ?? "pass";
 
-describe("sftpapp smoke", () => {
+describe("Kestrel smoke", () => {
   it("launches and shows the toolbar", async () => {
-    await expect($("header .brand")).toHaveText("sftpapp");
+    await expect($("header .scheme")).toHaveText("kestrel://");
     await expect($("button=Connect…")).toBeDisplayed();
   });
 

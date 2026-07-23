@@ -6,11 +6,9 @@ transfer engine, and Svelte 5.
 
 ![Kestrel's dual-pane browser: local files on the left, the remote server on the right](docs/screenshots/dual-pane.png)
 
-> **Status: pre-1.0, no published binaries yet.** Everything below is
-> implemented and tested, but release signing and the update feed are not set up
-> (see [Releases](#releases)), so today you build from source. The app is also
-> still shipping under its working name — the window title and `kestrel://` bar
-> say Kestrel, while the bundle identifier and crate names remain `sftpapp`.
+> **Status: pre-1.0.** Unsigned macOS and Windows builds are available from
+> [GitHub Releases](https://github.com/s4njee/kestrel/releases). Release signing
+> and the update feed are not enabled yet; see [Releases](#releases).
 
 ## Features
 
@@ -146,7 +144,7 @@ Docker, no network. The same harness backs a demo server you can point the app
 at:
 
 ```bash
-cargo run -p sftpapp-engine --example demo_server
+cargo run -p kestrel-engine --example demo_server
 # serves 127.0.0.1:2222 as demo/demo, with a seeded file tree
 ```
 
@@ -158,7 +156,7 @@ Two further suites need real infrastructure:
 docker run -d -p 2222:22 atmoz/sftp user:pass:::upload
 SFTP_TEST_HOST=127.0.0.1 SFTP_TEST_PORT=2222 SFTP_TEST_USER=user \
   SFTP_TEST_PASS=pass SFTP_TEST_DIR=/upload \
-  cargo test -p sftpapp-engine --features docker-tests
+  cargo test -p kestrel-engine --features docker-tests
 
 # End-to-end smoke test against the built app. Linux/Windows only —
 # tauri-driver has no macOS support. Needs `cargo install tauri-driver`.

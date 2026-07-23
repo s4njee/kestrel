@@ -1,9 +1,9 @@
-//! sftpapp-engine — protocol-agnostic file-transfer and session core.
+//! kestrel-engine — protocol-agnostic file-transfer and session core.
 //!
 //! This crate holds everything that can run without a UI or Tauri: the
 //! [`fs::RemoteFs`] protocol seam, the SSH/SFTP session manager, the transfer
 //! queue, and host-key verification. It is compiled and tested headless
-//! (`cargo test -p sftpapp-engine`); the Tauri shell in `src-tauri` depends on
+//! (`cargo test -p kestrel-engine`); the Tauri shell in `src-tauri` depends on
 //! it and adapts it to IPC.
 //!
 //! Module map (see tasks.md Appendix A). Most modules are stubs at E0-S2 and

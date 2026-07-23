@@ -12,7 +12,7 @@
 //! docker run -d -p 2222:22 atmoz/sftp user:pass:::upload
 //! SFTP_TEST_HOST=127.0.0.1 SFTP_TEST_PORT=2222 SFTP_TEST_USER=user \
 //!   SFTP_TEST_PASS=pass SFTP_TEST_DIR=/upload \
-//!   cargo test -p sftpapp-engine --features docker-tests -- --nocapture
+//!   cargo test -p kestrel-engine --features docker-tests -- --nocapture
 //! ```
 #![cfg(feature = "docker-tests")]
 
@@ -20,7 +20,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use sftpapp_engine::{
+use kestrel_engine::{
     copy_file, AuthMethod, ConnectParams, CopyOptions, Engine, EngineEvent, KnownHosts, LocalFs,
     PromptReply, RemoteFs, Secret, SessionId,
 };

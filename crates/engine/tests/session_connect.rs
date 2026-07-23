@@ -8,7 +8,7 @@ mod support;
 
 use std::sync::Arc;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     AuthMethod, ConnectParams, Engine, EngineEvent, HostKey, KnownHosts, PromptReply, Secret,
 };
 use tokio::sync::mpsc;
@@ -80,7 +80,7 @@ async fn wrong_password_fails_cleanly() {
         .connect(password_params(server.port, "alice", "wrong"))
         .await
         .expect_err("wrong password must fail");
-    assert!(matches!(err, sftpapp_engine::EngineError::Auth(_)), "got {err:?}");
+    assert!(matches!(err, kestrel_engine::EngineError::Auth(_)), "got {err:?}");
     assert!(engine.session_ids().is_empty());
 }
 
@@ -133,7 +133,7 @@ async fn changed_key_hard_fails() {
         .connect(password_params(server.port, "carol", "pw"))
         .await
         .expect_err("changed key must hard-fail when rejected");
-    assert!(matches!(err, sftpapp_engine::EngineError::HostKey(_)), "got {err:?}");
+    assert!(matches!(err, kestrel_engine::EngineError::HostKey(_)), "got {err:?}");
 
     // The prompt that was shown must have been flagged as a changed key.
     assert_eq!(prompts.recv().await, Some(true));

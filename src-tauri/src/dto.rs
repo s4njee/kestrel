@@ -6,7 +6,7 @@
 //! serialized back out (auth fields are inbound-only).
 
 use serde::{Deserialize, Serialize};
-use sftpapp_engine::{
+use kestrel_engine::{
     AuthMethod, ConnectParams, DirEntry, Direction, EditSessionInfo, EntryKind, PromptReply,
     SearchOutcome, SearchStrategy, Secret, TransferRequest,
 };

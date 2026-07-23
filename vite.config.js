@@ -1,4 +1,4 @@
-// vite.config.js — Vite + Vitest configuration for the sftpapp frontend.
+// vite.config.js — Vite + Vitest configuration for the kestrel frontend.
 //
 // Serves the SvelteKit SPA in dev (fixed port 1420 that Tauri attaches to) and
 // configures Vitest for unit/component tests. The `svelteTesting()` plugin +

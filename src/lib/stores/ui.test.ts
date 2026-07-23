@@ -17,7 +17,7 @@ describe("ui store", () => {
 
   it("persists the split ratio to localStorage", () => {
     ui.splitRatio = 0.42;
-    expect(window.localStorage.getItem("sftpapp.splitRatio")).toBe("0.42");
+    expect(window.localStorage.getItem("kestrel.splitRatio")).toBe("0.42");
   });
 
   it("tracks the active pane", () => {
@@ -44,7 +44,7 @@ describe("ui store console height", () => {
   it("persists the height to localStorage", () => {
     ui.consoleHeight = 240;
     expect(ui.consoleHeight).toBe(240);
-    expect(window.localStorage.getItem("sftpapp.consoleHeight")).toBe("240");
+    expect(window.localStorage.getItem("kestrel.consoleHeight")).toBe("240");
   });
 
   it("clamps below the minimum", () => {
@@ -67,17 +67,17 @@ describe("ui store console height", () => {
 
 describe("ui store follow-shell-cwd", () => {
   it("defaults to off (opt-in) and toggles + persists", () => {
-    window.localStorage.removeItem("sftpapp.followShellCwd");
+    window.localStorage.removeItem("kestrel.followShellCwd");
     // Fresh read is exercised via the live singleton's current value; the
     // important behaviour is that toggling round-trips to storage.
     const before = ui.followShellCwd;
     ui.toggleFollowShellCwd();
     expect(ui.followShellCwd).toBe(!before);
-    expect(window.localStorage.getItem("sftpapp.followShellCwd")).toBe(String(!before));
+    expect(window.localStorage.getItem("kestrel.followShellCwd")).toBe(String(!before));
 
     ui.toggleFollowShellCwd();
     expect(ui.followShellCwd).toBe(before);
-    expect(window.localStorage.getItem("sftpapp.followShellCwd")).toBe(String(before));
+    expect(window.localStorage.getItem("kestrel.followShellCwd")).toBe(String(before));
   });
 });
 

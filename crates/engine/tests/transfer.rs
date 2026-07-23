@@ -6,7 +6,7 @@ mod support;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     copy_file, AuthMethod, ConnectParams, CopyOptions, Direction, Engine, EngineEvent, KnownHosts,
     LocalFs, PromptReply, RemoteFs, Secret, SessionId, TransferId, TransferRequest, TransferState,
 };
@@ -491,7 +491,7 @@ async fn run_with_conflict_resolution(
     engine: &Arc<Engine>,
     events: &mut broadcast::Receiver<EngineEvent>,
     ids: &[TransferId],
-    resolution: sftpapp_engine::ConflictResolution,
+    resolution: kestrel_engine::ConflictResolution,
     apply_to_all: bool,
 ) -> Vec<(TransferId, TransferState)> {
     let mut terminal = std::collections::HashSet::new();
@@ -525,7 +525,7 @@ fn conflict_engine(dir: &tempfile::TempDir) -> Arc<Engine> {
 
 #[tokio::test]
 async fn conflict_overwrite_replaces_existing() {
-    use sftpapp_engine::ConflictResolution;
+    use kestrel_engine::ConflictResolution;
     let server = support::start_password_server("u", "p").await;
     std::fs::write(server.root().join("f.bin"), b"NEWDATA").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -566,7 +566,7 @@ async fn conflict_overwrite_replaces_existing() {
 
 #[tokio::test]
 async fn upload_conflict_overwrite_starts_from_zero() {
-    use sftpapp_engine::ConflictResolution;
+    use kestrel_engine::ConflictResolution;
     let server = support::start_password_server("u", "p").await;
     std::fs::write(server.root().join("f.bin"), b"oldcontent").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -601,7 +601,7 @@ async fn upload_conflict_overwrite_starts_from_zero() {
 
 #[tokio::test]
 async fn upload_conflict_resume_counts_existing_bytes() {
-    use sftpapp_engine::ConflictResolution;
+    use kestrel_engine::ConflictResolution;
     let server = support::start_password_server("u", "p").await;
     std::fs::write(server.root().join("f.bin"), b"NEW").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -636,7 +636,7 @@ async fn upload_conflict_resume_counts_existing_bytes() {
 
 #[tokio::test]
 async fn conflict_skip_leaves_existing() {
-    use sftpapp_engine::ConflictResolution;
+    use kestrel_engine::ConflictResolution;
     let server = support::start_password_server("u", "p").await;
     std::fs::write(server.root().join("f.bin"), b"NEWDATA").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -663,7 +663,7 @@ async fn conflict_skip_leaves_existing() {
 
 #[tokio::test]
 async fn conflict_rename_writes_new_name() {
-    use sftpapp_engine::ConflictResolution;
+    use kestrel_engine::ConflictResolution;
     let server = support::start_password_server("u", "p").await;
     std::fs::write(server.root().join("f.txt"), b"NEWDATA").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -697,7 +697,7 @@ async fn conflict_rename_writes_new_name() {
 
 #[tokio::test]
 async fn conflict_apply_to_all_covers_batch() {
-    use sftpapp_engine::ConflictResolution;
+    use kestrel_engine::ConflictResolution;
     let server = support::start_password_server("u", "p").await;
     for i in 0..3 {
         std::fs::write(server.root().join(format!("f{i}.bin")), b"NEW").unwrap();
@@ -813,7 +813,7 @@ async fn reconnect_rebuilds_a_working_session() {
 
 #[tokio::test]
 async fn remote_file_ops_rename_mkdir_delete_recursive_chmod() {
-    use sftpapp_engine::remove_recursive;
+    use kestrel_engine::remove_recursive;
     let server = support::start_password_server("u", "p").await;
     let dir = tempfile::tempdir().unwrap();
     let engine = Arc::new(Engine::new(KnownHosts::load(
@@ -845,7 +845,7 @@ async fn remote_file_ops_rename_mkdir_delete_recursive_chmod() {
 #[tokio::test]
 async fn agent_auth_errors_when_no_agent() {
     // Point at a non-existent agent socket so agent auth fails deterministically.
-    std::env::set_var("SSH_AUTH_SOCK", "/nonexistent/sftpapp-test-agent.sock");
+    std::env::set_var("SSH_AUTH_SOCK", "/nonexistent/kestrel-test-agent.sock");
     let server = support::start_password_server("u", "p").await;
     let dir = tempfile::tempdir().unwrap();
     let engine = Arc::new(Engine::new(KnownHosts::load(
@@ -873,12 +873,12 @@ async fn agent_auth_errors_when_no_agent() {
         })
         .await
         .expect_err("agent auth should fail with no reachable agent");
-    assert!(matches!(err, sftpapp_engine::EngineError::Auth(_)), "got {err:?}");
+    assert!(matches!(err, kestrel_engine::EngineError::Auth(_)), "got {err:?}");
 }
 
 #[tokio::test]
 async fn keyboard_interactive_auth_succeeds() {
-    use sftpapp_engine::{EngineEvent, PromptReply};
+    use kestrel_engine::{EngineEvent, PromptReply};
     let server = support::start_ki_server("u", "sesame").await;
     std::fs::write(server.root().join("f.txt"), b"ok").unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -946,7 +946,7 @@ async fn restored_transfers_reattach_to_a_reconnected_session() {
     engine1.flush_queue_persistence();
 
     // The snapshot carries the session's identity, not just its (ephemeral) id.
-    let snapshot: Vec<sftpapp_engine::PersistedTransfer> =
+    let snapshot: Vec<kestrel_engine::PersistedTransfer> =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(snapshot.len(), 1);
     let origin = snapshot[0].origin.clone().expect("origin should be persisted");
@@ -996,9 +996,9 @@ async fn restored_transfers_do_not_attach_to_a_different_host() {
     let path = dir.path().join("queue.json");
 
     // A snapshot belonging to some other server.
-    let foreign = vec![sftpapp_engine::PersistedTransfer {
+    let foreign = vec![kestrel_engine::PersistedTransfer {
         session_id: uuid::Uuid::new_v4(),
-        origin: Some(sftpapp_engine::SessionOrigin {
+        origin: Some(kestrel_engine::SessionOrigin {
             host: "elsewhere.example.com".to_string(),
             port: 22,
             username: "someone".to_string(),

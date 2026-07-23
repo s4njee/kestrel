@@ -1,6 +1,6 @@
 {
-  "name": "sftpapp",
-  "version": "0.1.0",
+  "name": "kestrel",
+  "version": "0.1.1",
   "description": "Cross-platform SFTP file-transfer client (Tauri v2 + Svelte 5)",
   "type": "module",
   "scripts": {

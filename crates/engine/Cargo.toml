@@ -1,4 +1,4 @@
-# Cargo.toml — sftpapp-engine: protocol-agnostic transfer & session core.
+# Cargo.toml — kestrel-engine: protocol-agnostic transfer & session core.
 #
 # MUST NOT depend on tauri (IPC/DTO types live in src-tauri). Dependencies are
 # added story-by-story as modules are implemented; today only `thiserror` is
@@ -6,10 +6,10 @@
 # workspace root's [workspace.dependencies].
 
 [package]
-name = "sftpapp-engine"
-version = "0.1.0"
+name = "kestrel-engine"
+version = "0.1.1"
 edition = "2021"
-description = "Protocol-agnostic file-transfer and SSH/SFTP session engine for sftpapp"
+description = "Protocol-agnostic file-transfer and SSH/SFTP session engine for kestrel"
 
 [features]
 # Opt-in integration tests that hit a real OpenSSH/SFTP server (atmoz/sftp).

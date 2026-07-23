@@ -1,6 +1,6 @@
 [package]
-name = "sftpapp"
-version = "0.1.0"
+name = "kestrel"
+version = "0.1.1"
 description = "Cross-platform SFTP file-transfer client"
 authors = ["you"]
 edition = "2021"
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "sftpapp_lib"
+name = "kestrel_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -42,7 +42,7 @@ keyring = { workspace = true }
 
 # The protocol-agnostic engine: sessions, transfers, RemoteFs. All disk/network
 # I/O lives here; the shell only marshals paths/metadata across IPC.
-sftpapp-engine = { path = "../crates/engine" }
+kestrel-engine = { path = "../crates/engine" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -52,4 +52,3 @@ tempfile = { workspace = true }
 # lib.rs.
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2"
-

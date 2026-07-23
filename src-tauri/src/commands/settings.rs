@@ -4,7 +4,7 @@
 //! (transfer concurrency and the default conflict policy) into the engine so a
 //! change takes effect immediately — including mid-queue.
 
-use sftpapp_engine::{ConflictResolution, Engine};
+use kestrel_engine::{ConflictResolution, Engine};
 use tauri::State;
 
 use crate::commands::CmdResult;

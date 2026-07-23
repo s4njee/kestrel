@@ -1,4 +1,4 @@
-# Releasing sftpapp
+# Releasing Kestrel
 
 This document covers signing, the auto-updater, and how to cut a release. The
 release pipeline itself (GitHub Actions platform builds → published release) is in
@@ -12,9 +12,9 @@ below for when a signed distribution pipeline is enabled.
 
 ## 0. Build prerequisites
 
-Beyond Rust (stable), Node 20, and pnpm, each OS needs its own toolchain. CI
-installs these itself (`.github/workflows/ci.yml`); on a maintainer machine you
-install them once.
+Beyond Rust (stable), Node 20, and pnpm, each OS needs its own toolchain. The
+release workflow installs these itself; on a maintainer machine you install them
+once.
 
 **Windows** additionally requires **NASM**. `russh` pulls in `aws-lc-rs` →
 `aws-lc-sys`, which assembles its crypto primitives with NASM on x86_64 and
@@ -48,7 +48,7 @@ Generate a keypair once (already done for the current pubkey; regenerate only to
 rotate the key):
 
 ```bash
-pnpm tauri signer generate -w ~/.sftpapp/updater.key
+pnpm tauri signer generate -w ~/.kestrel/updater.key
 # Prints the public key and writes the private key to the -w path.
 ```
 

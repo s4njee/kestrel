@@ -2626,6 +2626,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "kestrel"
+version = "0.1.1"
+dependencies = [
+ "base64 0.22.1",
+ "dashmap",
+ "kestrel-engine",
+ "keyring",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "kestrel-engine"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "dashmap",
+ "hmac 0.12.1",
+ "md-5",
+ "notify",
+ "rand 0.9.5",
+ "russh",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "keyboard-types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4620,56 +4670,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
 dependencies = [
  "stable_deref_trait",
-]
-
-[[package]]
-name = "sftpapp"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "dashmap",
- "keyring",
- "serde",
- "serde_json",
- "sftpapp-engine",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 2.0.18",
- "tokio-util",
- "tracing",
- "uuid",
- "zeroize",
-]
-
-[[package]]
-name = "sftpapp-engine"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "dashmap",
- "hmac 0.12.1",
- "md-5",
- "notify",
- "rand 0.9.5",
- "russh",
- "russh-sftp",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "tar",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "zeroize",
 ]
 
 [[package]]

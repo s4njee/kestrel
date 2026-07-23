@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     tarstream, AuthMethod, ConnectParams, Engine, EngineEvent, KnownHosts, PromptReply, Secret,
     SessionId,
 };
@@ -134,7 +134,7 @@ async fn upload_streams_an_archive_and_is_cancellable() {
     let err = tarstream::upload_dir(&session, &tree, "/upload", &progress2, &cancelled)
         .await
         .expect_err("a cancelled transfer must not complete");
-    assert!(matches!(err, sftpapp_engine::EngineError::Canceled));
+    assert!(matches!(err, kestrel_engine::EngineError::Canceled));
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ async fn upload_streams_an_archive_and_is_cancellable() {
 
 /// Extraction is exercised through the same entry point the download path uses,
 /// via a staged archive, so these cover the real code path.
-fn extract(archive: &Path, dest: &Path) -> Result<(), sftpapp_engine::EngineError> {
+fn extract(archive: &Path, dest: &Path) -> Result<(), kestrel_engine::EngineError> {
     tarstream::extract_safely(archive, dest)
 }
 
@@ -158,7 +158,7 @@ fn extraction_rejects_parent_traversal() {
     hostile_archive(&archive, "../pwned.txt", b"owned");
     let err = extract(&archive, &dest).expect_err("traversal must be rejected");
     assert!(
-        matches!(err, sftpapp_engine::EngineError::InvalidPath(_)),
+        matches!(err, kestrel_engine::EngineError::InvalidPath(_)),
         "expected InvalidPath, got {err:?}"
     );
     assert!(!outside.exists(), "nothing may be written outside dest");
@@ -183,11 +183,11 @@ fn extraction_rejects_absolute_member_paths() {
     let dest = dir.path().join("dest");
     std::fs::create_dir_all(&dest).unwrap();
 
-    hostile_archive(&archive, "/tmp/sftpapp-should-not-exist", b"owned");
+    hostile_archive(&archive, "/tmp/kestrel-should-not-exist", b"owned");
     // Leading separators are stripped to components, each of which is validated;
     // either way nothing may land at the absolute path.
     let _ = extract(&archive, &dest);
-    assert!(!Path::new("/tmp/sftpapp-should-not-exist").exists());
+    assert!(!Path::new("/tmp/kestrel-should-not-exist").exists());
 }
 
 #[test]

@@ -9,12 +9,12 @@
 
 import type { PaneKind } from "$lib/types";
 
-const RATIO_KEY = "sftpapp.splitRatio";
+const RATIO_KEY = "kestrel.splitRatio";
 const MIN_RATIO = 0.15;
 const MAX_RATIO = 0.85;
 
-const FOLLOW_KEY = "sftpapp.followShellCwd";
-const CONSOLE_KEY = "sftpapp.consoleHeight";
+const FOLLOW_KEY = "kestrel.followShellCwd";
+const CONSOLE_KEY = "kestrel.consoleHeight";
 /** Default console height: 18 text lines plus the tab strip and padding. */
 const DEFAULT_CONSOLE_HEIGHT = 360;
 /** Keep at least a couple of lines visible, and always leave room for the panes. */

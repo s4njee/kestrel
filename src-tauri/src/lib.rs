@@ -1,9 +1,9 @@
-//! lib.rs — Application wiring for the sftpapp Tauri shell.
+//! lib.rs — Application wiring for the kestrel Tauri shell.
 //!
 //! Builds the Tauri application: constructs the engine (with the known_hosts
 //! store), registers it as managed state, wires the `invoke` command handlers,
 //! and runs the event loop. This crate is the boundary between the OS/webview
-//! (Tauri) and the protocol-agnostic engine (`sftpapp-engine`); no file bytes
+//! (Tauri) and the protocol-agnostic engine (`kestrel-engine`); no file bytes
 //! ever cross the IPC boundary — see `tasks.md` "Conventions & invariants".
 
 mod bookmarks;
@@ -16,7 +16,7 @@ mod state;
 
 use std::sync::Arc;
 
-use sftpapp_engine::{DirWatcher, Engine, KnownHosts, DEFAULT_DEBOUNCE};
+use kestrel_engine::{DirWatcher, Engine, KnownHosts, DEFAULT_DEBOUNCE};
 use tauri::Manager;
 
 use bookmarks::BookmarkStore;

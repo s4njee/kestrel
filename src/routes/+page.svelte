@@ -121,7 +121,7 @@
 
   // Reflect the active session in the window/document title.
   $effect(() => {
-    const title = active ? `kestrel — ${active.info.username}@${active.info.host}` : "kestrel";
+    const title = active ? `Kestrel — ${active.info.username}@${active.info.host}` : "Kestrel";
     document.title = title;
     try {
       void getCurrentWindow().setTitle(title);
@@ -182,7 +182,7 @@
   onMount(() => {
     // Guard: browser dev preview has no Tauri runtime.
     try {
-      logs.status("kestrel ready — use [connect] to open a session", true);
+      logs.status("Kestrel ready — use [connect] to open a session", true);
       void initSessionEvents();
       listEditSessions()
         .then((live) => edits.replace(live))

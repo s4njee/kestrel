@@ -13,7 +13,7 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     AuthMethod, ConnectParams, Engine, EngineEvent, KnownHosts, PromptReply, Secret, SessionId,
     DEFAULT_EXEC_TIMEOUT,
 };
@@ -126,7 +126,7 @@ async fn exec_times_out_instead_of_hanging() {
         .expect_err("a command that never replies must time out");
 
     assert!(
-        matches!(err, sftpapp_engine::EngineError::Timeout),
+        matches!(err, kestrel_engine::EngineError::Timeout),
         "expected Timeout, got {err:?}"
     );
 }

@@ -1,6 +1,6 @@
 //! commands/browse.rs — Remote directory listing, stat, and search.
 
-use sftpapp_engine::RemoteFs;
+use kestrel_engine::RemoteFs;
 use tokio_util::sync::CancellationToken;
 use tauri::State;
 use uuid::Uuid;
@@ -68,9 +68,9 @@ pub async fn stat_entry(
         name,
         path: path.clone(),
         kind: match meta.kind {
-            sftpapp_engine::EntryKind::File => "file",
-            sftpapp_engine::EntryKind::Dir => "dir",
-            sftpapp_engine::EntryKind::Symlink => "symlink",
+            kestrel_engine::EntryKind::File => "file",
+            kestrel_engine::EntryKind::Dir => "dir",
+            kestrel_engine::EntryKind::Symlink => "symlink",
         }
         .to_string(),
         size: meta.size,
@@ -109,11 +109,11 @@ pub async fn search_remote(
 
     let cancel = CancellationToken::new();
     state.searches.insert(search_id.clone(), cancel.clone());
-    let result = sftpapp_engine::search(
+    let result = kestrel_engine::search(
         &session,
         &root,
         &query,
-        sftpapp_engine::SearchOptions::default(),
+        kestrel_engine::SearchOptions::default(),
         &cancel,
     )
     .await;

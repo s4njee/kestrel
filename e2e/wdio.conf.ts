@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 
 /** The built release binary the driver launches. */
-const application = path.resolve(import.meta.dirname, "../src-tauri/target/release/sftpapp");
+const application = path.resolve(import.meta.dirname, "../src-tauri/target/release/kestrel");
 
 /** Handle to the tauri-driver process, killed on completion. */
 let tauriDriver: ChildProcess | undefined;

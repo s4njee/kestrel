@@ -9,7 +9,7 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     AuthMethod, ConnectParams, Engine, EngineEvent, KnownHosts, PromptReply, Secret, SessionId,
 };
 use tokio::sync::broadcast;

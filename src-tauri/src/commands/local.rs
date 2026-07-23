@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use sftpapp_engine::{remove_recursive, EntryKind, LocalFs, RemoteFs};
+use kestrel_engine::{remove_recursive, EntryKind, LocalFs, RemoteFs};
 use tauri::{AppHandle, Manager, State};
 
 use crate::commands::CmdResult;

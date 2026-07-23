@@ -16,7 +16,7 @@ mod support;
 
 use std::sync::Arc;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     search, AuthMethod, ConnectParams, Engine, EngineEvent, EngineError, KnownHosts, PromptReply,
     SearchOptions, SearchStrategy, Secret, SessionId,
 };
@@ -78,7 +78,7 @@ fn write_tree(root: &std::path::Path) {
 ///
 /// Arguments: `outcome` — a completed search.
 /// Returns: the hit names, sorted.
-fn names(outcome: &sftpapp_engine::SearchOutcome) -> Vec<String> {
+fn names(outcome: &kestrel_engine::SearchOutcome) -> Vec<String> {
     let mut out: Vec<String> = outcome.hits.iter().map(|h| h.name.clone()).collect();
     out.sort();
     out

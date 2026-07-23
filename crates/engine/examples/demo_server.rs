@@ -5,7 +5,7 @@
 //! with a realistic remote tree, so the app can be run, demoed, and screenshot
 //! against a real SFTP endpoint without Docker or a network.
 //!
-//! Usage: `cargo run -p sftpapp-engine --example demo_server`
+//! Usage: `cargo run -p kestrel-engine --example demo_server`
 //! Then connect Kestrel to 127.0.0.1:2222 as `demo` / `demo`.
 //!
 //! Env overrides: DEMO_PORT, DEMO_USER, DEMO_PASS.

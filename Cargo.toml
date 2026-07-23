@@ -1,9 +1,9 @@
-# Cargo.toml — Workspace root for the sftpapp Rust code.
+# Cargo.toml — Workspace root for the kestrel Rust code.
 #
 # Two members:
-#   - crates/engine : sftpapp-engine, the protocol-agnostic transfer/session
+#   - crates/engine : kestrel-engine, the protocol-agnostic transfer/session
 #                     core. It has NO dependency on Tauri and is tested headless
-#                     (`cargo test -p sftpapp-engine`).
+#                     (`cargo test -p kestrel-engine`).
 #   - src-tauri     : the thin Tauri shell (commands, DTOs, event bridge) that
 #                     depends on the engine.
 #

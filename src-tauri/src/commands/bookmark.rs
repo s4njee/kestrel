@@ -8,7 +8,7 @@
 use tauri::State;
 use uuid::Uuid;
 
-use sftpapp_engine::{AuthMethod, ConnectParams, Secret};
+use kestrel_engine::{AuthMethod, ConnectParams, Secret};
 
 use crate::bookmarks::Bookmark;
 use crate::commands::CmdResult;

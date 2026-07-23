@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use sftpapp_engine::{
+use kestrel_engine::{
     copy_file, AuthMethod, ConnectParams, CopyOptions, Engine, EngineEvent, KnownHosts,
     PromptReply, Secret,
 };
@@ -58,7 +58,7 @@ async fn main() {
         .await
         .expect("connect");
     let fs = engine.session(id).unwrap().remote_fs().await;
-    let local_fs = sftpapp_engine::LocalFs::new();
+    let local_fs = kestrel_engine::LocalFs::new();
 
     let progress = AtomicU64::new(0);
     let cancel = CancellationToken::new();

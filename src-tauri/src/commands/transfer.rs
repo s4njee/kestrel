@@ -1,6 +1,6 @@
 //! commands/transfer.rs — Transfer queue commands and the transfer-event bridge.
 
-use sftpapp_engine::{ConflictResolution, Direction};
+use kestrel_engine::{ConflictResolution, Direction};
 use tauri::ipc::Channel;
 use tauri::State;
 use uuid::Uuid;

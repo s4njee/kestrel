@@ -135,8 +135,6 @@ cash that promise in.
   signing setup exist but the secrets and a real update endpoint are
   placeholders (see [`docs/RELEASING.md`](docs/RELEASING.md)). This is the
   gating item for an actual 1.0 with published binaries.
-- **Rename off the working title** (S) — the README notes the bundle id and
-  crate names are still `sftpapp` while the UI says Kestrel; unify before 1.0.
 - **Config import / export** (S) — move bookmarks and settings between machines
   (secrets stay in the OS store and are re-entered, not exported).
 - **Portable mode** (S) — keep config next to the binary for USB-stick use.

@@ -10,7 +10,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
-use sftpapp_engine::{DirWatcher, Engine};
+use kestrel_engine::{DirWatcher, Engine};
 use tokio_util::sync::CancellationToken;
 
 use crate::bookmarks::BookmarkStore;
